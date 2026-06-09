@@ -175,6 +175,14 @@ export interface StateSettlementResult {
   metadata: StateSettlementMetadata;
 }
 
+export interface StateDeltaModelAttempt {
+  attempt: number;
+  prompt: string;
+  output?: string;
+  error?: string;
+  accepted: boolean;
+}
+
 export type GenerateStateDeltaFn = (request: {
   prompt: string;
   config: LongguConfig;
@@ -276,14 +284,7 @@ export async function settleChapterState(input: {
     generate: input.generate
   });
   const delta = deltaInput.delta;
-  if (delta.chapterId !== input.chapterId) {
-    throw new Error(`State delta chapterId mismatch: expected ${input.chapterId}, received ${delta.chapterId}.`);
-  }
-
-  const conflicts = detectStateConflicts(before, delta);
-  if (conflicts.length > 0) {
-    throw new Error(`State settlement conflict: ${conflicts.join("; ")}`);
-  }
+  assertDeltaAppliesToState({ chapterId: input.chapterId, ledgers: before, delta });
 
   const settledAt = input.now ?? new Date();
   const { after, diff } = mergeStateDelta(before, delta, settledAt);
@@ -313,7 +314,8 @@ export async function settleChapterState(input: {
     diff,
     metadata,
     prompt: deltaInput.prompt,
-    modelOutput: deltaInput.modelOutput
+    modelOutput: deltaInput.modelOutput,
+    modelAttempts: deltaInput.modelAttempts
   });
 
   return { settlementDir, diff, metadata };
@@ -408,6 +410,7 @@ async function resolveSettlementDelta(input: {
   config?: LongguConfig;
   prompt?: string;
   modelOutput?: string;
+  modelAttempts?: StateDeltaModelAttempt[];
 }> {
   if (input.deltaPath) {
     const deltaPath = path.isAbsolute(input.deltaPath) ? input.deltaPath : path.join(input.workspaceDir, input.deltaPath);
@@ -418,20 +421,42 @@ async function resolveSettlementDelta(input: {
     throw new Error("State delta extraction requires provider config and API key when --delta is not provided.");
   }
 
-  const prompt = renderStateDeltaPrompt({
+  let prompt = renderStateDeltaPrompt({
     chapterId: input.chapterId,
     chapterText: input.chapterText,
     ledgers: input.ledgers
   });
-  const result = await input.generate({ prompt, config: input.config, apiKey: input.apiKey });
-  const delta = parseStateDeltaFromText(result.text);
-  return {
-    source: "model",
-    delta,
-    config: input.config,
-    prompt,
-    modelOutput: result.text
-  };
+  const attempts: StateDeltaModelAttempt[] = [];
+  let lastError = "";
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const result = await input.generate({ prompt, config: input.config, apiKey: input.apiKey });
+    try {
+      const delta = parseStateDeltaFromText(result.text);
+      assertDeltaAppliesToState({ chapterId: input.chapterId, ledgers: input.ledgers, delta });
+      attempts.push({ attempt, prompt, output: result.text, accepted: true });
+      return {
+        source: "model",
+        delta,
+        config: input.config,
+        prompt,
+        modelOutput: result.text,
+        modelAttempts: attempts
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      attempts.push({ attempt, prompt, output: result.text, error: lastError, accepted: false });
+      prompt = renderStateDeltaRetryPrompt({
+        chapterId: input.chapterId,
+        chapterText: input.chapterText,
+        ledgers: input.ledgers,
+        previousOutput: result.text,
+        error: lastError
+      });
+    }
+  }
+
+  throw new Error(`State delta extraction failed after retry: ${lastError}`);
 }
 
 function renderStateDeltaPrompt(input: {
@@ -458,6 +483,28 @@ ${JSON.stringify(input.ledgers, null, 2)}
 ${input.chapterText}
 
 只输出 JSON：`;
+}
+
+function renderStateDeltaRetryPrompt(input: {
+  chapterId: string;
+  chapterText: string;
+  ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>;
+  previousOutput: string;
+  error: string;
+}): string {
+  return `${renderStateDeltaPrompt({
+    chapterId: input.chapterId,
+    chapterText: input.chapterText,
+    ledgers: input.ledgers
+  })}
+
+上一次输出被拒绝，原因：
+${input.error}
+
+上一次输出：
+${input.previousOutput}
+
+请重新输出一个修正后的 JSON 对象。只输出 JSON：`;
 }
 
 function parseStateDeltaFromText(text: string): StateDelta {
@@ -524,6 +571,21 @@ function detectStateConflicts(
   }
 
   return conflicts;
+}
+
+function assertDeltaAppliesToState(input: {
+  chapterId: string;
+  ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>;
+  delta: StateDelta;
+}): void {
+  if (input.delta.chapterId !== input.chapterId) {
+    throw new Error(`State delta chapterId mismatch: expected ${input.chapterId}, received ${input.delta.chapterId}.`);
+  }
+
+  const conflicts = detectStateConflicts(input.ledgers, input.delta);
+  if (conflicts.length > 0) {
+    throw new Error(`State settlement conflict: ${conflicts.join("; ")}`);
+  }
 }
 
 function mergeStateDelta(
@@ -606,6 +668,7 @@ async function writeSettlementRecord(input: {
   metadata: StateSettlementMetadata;
   prompt?: string;
   modelOutput?: string;
+  modelAttempts?: StateDeltaModelAttempt[];
 }): Promise<void> {
   await mkdir(input.settlementDir, { recursive: true });
   await writeFile(path.join(input.settlementDir, "delta.json"), `${JSON.stringify(input.delta, null, 2)}\n`, "utf8");
@@ -618,6 +681,9 @@ async function writeSettlementRecord(input: {
   }
   if (input.modelOutput !== undefined) {
     await writeFile(path.join(input.settlementDir, "model-output.txt"), input.modelOutput, "utf8");
+  }
+  if (input.modelAttempts !== undefined) {
+    await writeFile(path.join(input.settlementDir, "model-attempts.json"), `${JSON.stringify(input.modelAttempts, null, 2)}\n`, "utf8");
   }
 }
 

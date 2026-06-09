@@ -96,3 +96,59 @@ describe("longgu state CLI", () => {
     await expect(readFile(path.join(dir, "state", "truth.json"), "utf8")).resolves.toContain("fact-001");
   });
 });
+
+describe("longgu audit CLI", () => {
+  it("audits a chapter from provided raw audit input", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-audit-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n陆沉站在宗门门口。\n", "utf8");
+    await mkdir(path.join(dir, "audits"), { recursive: true });
+    const inputPath = path.join(dir, "audits", "001.raw-audit.json");
+    await writeFile(
+      inputPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-audit.v0.4",
+          chapterId: "001",
+          genre: "玄幻",
+          summary: "章节可读，但尾钩偏弱。",
+          scores: {
+            retention: 6,
+            readability: 7,
+            aiFlavor: 4,
+            scenePressure: 5,
+            characterVoice: 6
+          },
+          issues: [
+            {
+              id: "issue-001",
+              checkerPriority: "P1",
+              source: "chapter-plan",
+              dimension: "weak-ending-hook",
+              location: "结尾",
+              reason: "结尾没有形成明确下一章问题。",
+              fix: "加入具体威胁或选择。"
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "audit", "chapter", "--id", "001", "--input", inputPath, dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(result.stdout).toContain("Audit JSON:");
+    expect(result.stdout).toContain("Status: needs-revision");
+    expect(result.stdout).toContain("Warning: 1");
+    await expect(readFile(path.join(dir, "audits", "001.audit.json"), "utf8")).resolves.toContain(
+      "\"schemaVersion\": \"longgu.chapter-audit.v0.4\""
+    );
+    await expect(readFile(path.join(dir, "audits", "001.audit.md"), "utf8")).resolves.toContain("Chapter Audit 001");
+  });
+});

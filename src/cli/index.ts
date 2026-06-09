@@ -3,6 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { ZodError } from "zod";
 import { checkOpenAICompatible, generateWithOpenAICompatible } from "../adapters/openaiCompatible.js";
+import { auditChapter } from "../core/audit.js";
 import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
 import { loadLongguConfig } from "../core/config.js";
 import { writeChapter } from "../core/generation.js";
@@ -15,7 +16,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.3.0");
+  .version("0.4.0");
 
 program
   .command("init")
@@ -222,6 +223,38 @@ settle
           `${diff.ledger}: ${changed} touched, ${diff.added.length} added, ${diff.updated.length} updated, ${diff.unchanged.length} unchanged`
         );
       }
+    });
+  });
+
+const audit = program.command("audit").description("Audit Longgu artifacts");
+audit
+  .command("chapter")
+  .description("Audit a chapter and write V0.4 audit artifacts")
+  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .option("--input <path>", "raw audit JSON path; skips provider extraction when provided")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; input?: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = await loadConfigWithFriendlyErrors(workspaceDir);
+      const apiKey = options.input ? undefined : readApiKey(config.provider.apiKeyEnv);
+      const result = await auditChapter({
+        workspaceDir,
+        chapterId: options.id,
+        inputPath: options.input,
+        config,
+        apiKey,
+        generate: options.input ? undefined : generateWithOpenAICompatible
+      });
+      const criticalCount = result.audit.issues.filter((issue) => issue.severity === "critical").length;
+      const warningCount = result.audit.issues.filter((issue) => issue.severity === "warning").length;
+      console.log(`Audit JSON: ${result.jsonPath}`);
+      console.log(`Audit Markdown: ${result.markdownPath}`);
+      console.log(`Status: ${result.audit.status}`);
+      console.log(`Blocked: ${result.audit.blocked}`);
+      console.log(`Critical: ${criticalCount}`);
+      console.log(`Warning: ${warningCount}`);
     });
   });
 

@@ -209,6 +209,100 @@ describe("settleChapterState", () => {
     expect(TruthLedgerSchema.parse(await loadStateLedger(dir, "truth.json")).facts).toHaveLength(1);
   });
 
+  it("retries model extraction once after invalid output", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-settle-retry-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n陆沉得到一枚灵石。\n", "utf8");
+    let calls = 0;
+
+    const result = await settleChapterState({
+      workspaceDir: dir,
+      chapterId: "001",
+      config: {
+        title: "测试小说",
+        genre: "玄幻",
+        language: "zh-CN",
+        provider: {
+          name: "openai-compatible",
+          baseUrl: "https://api.example.com/v1",
+          model: "test-model",
+          apiKeyEnv: "TEST_API_KEY",
+          temperature: 0.7,
+          maxTokens: 1200
+        }
+      },
+      apiKey: "secret",
+      generate: async ({ prompt }) => {
+        calls += 1;
+        if (calls === 1) {
+          return { text: "not json" };
+        }
+        expect(prompt).toContain("上一次输出被拒绝");
+        expect(prompt).toContain("provider response did not contain a JSON object");
+        return {
+          text: JSON.stringify({
+            schemaVersion: "longgu.state-delta.v0.3",
+            chapterId: "001",
+            facts: [{ id: "fact-001", text: "陆沉得到一枚灵石。", sourceChapterId: "001" }]
+          })
+        };
+      },
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(calls).toBe(2);
+    await expect(readFile(path.join(result.settlementDir, "model-attempts.json"), "utf8")).resolves.toContain(
+      "\"accepted\": false"
+    );
+    expect(TruthLedgerSchema.parse(await loadStateLedger(dir, "truth.json")).facts).toHaveLength(1);
+  });
+
+  it("fails model settlement after retry without mutating ledgers", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-settle-retry-fail-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n正文。\n", "utf8");
+    const before = await readFile(path.join(dir, "state", "truth.json"), "utf8");
+    let calls = 0;
+
+    await expect(
+      settleChapterState({
+        workspaceDir: dir,
+        chapterId: "001",
+        config: {
+          title: "测试小说",
+          genre: "玄幻",
+          language: "zh-CN",
+          provider: {
+            name: "openai-compatible",
+            baseUrl: "https://api.example.com/v1",
+            model: "test-model",
+            apiKeyEnv: "TEST_API_KEY",
+            temperature: 0.7,
+            maxTokens: 1200
+          }
+        },
+        apiKey: "secret",
+        generate: async () => {
+          calls += 1;
+          return { text: "still not json" };
+        },
+        now: new Date("2026-06-09T10:00:00.000Z")
+      })
+    ).rejects.toThrow("State delta extraction failed after retry");
+
+    expect(calls).toBe(2);
+    await expect(readFile(path.join(dir, "state", "truth.json"), "utf8")).resolves.toBe(before);
+    await expect(stat(path.join(dir, "state", "settlements"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("rejects blocking conflicts before mutating ledgers", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-conflict-"));
     await createFixtureWorkspace(dir);
