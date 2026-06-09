@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "longgu.experiment.v0.9",
+  "id": "opening-ab",
+  "goal": "比较两个开篇钩子的读者吸引力。",
+  "createdAt": "2026-06-09T12:40:00.000Z",
+  "variants": ["hook-a", "hook-b"]
+}

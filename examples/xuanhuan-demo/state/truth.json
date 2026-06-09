@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "longgu.story-state.v0.3",
+  "ledger": "truth",
+  "facts": [
+    {
+      "id": "fact-001",
+      "text": "陆沉背负三枚灵石债务。",
+      "sourceChapterId": "001"
+    },
+    {
+      "id": "fact-002",
+      "text": "测试石裂纹只对陆沉发出声音。",
+      "sourceChapterId": "001"
+    }
+  ],
+  "updatedAt": "2026-06-09T12:20:00.000Z"
+}

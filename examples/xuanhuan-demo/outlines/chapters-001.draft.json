@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "longgu.chapters-plan-draft.v0.2",
+  "status": "draft",
+  "volumeId": "001",
+  "title": "裂石少年 第一卷 章节规划",
+  "genre": "玄幻",
+  "volumePlanSource": "outlines/volume-001.draft.json",
+  "chapterCount": 3,
+  "chapters": [
+    {
+      "chapterId": "001",
+      "title": "裂纹初响",
+      "goal": "陆沉拿到入门测试资格。",
+      "conflict": "赵衡用欠债和杂役身份压他放弃。",
+      "payoff": "测试石裂开黑纹，所有人被迫让路。",
+      "informationGain": "裂纹只对陆沉发出声音。",
+      "endingHook": "黑纹在陆沉掌心留下同样印记。"
+    },
+    {
+      "chapterId": "002",
+      "title": "灵石被扣",
+      "goal": "陆沉拿到新弟子灵石。",
+      "conflict": "执事弟子当众扣下资源。",
+      "payoff": "陆沉用测试记录逼对方退让。",
+      "informationGain": "测试记录不可被低阶执事篡改。",
+      "endingHook": "赵衡要求次日重测。"
+    },
+    {
+      "chapterId": "003",
+      "title": "重测风波",
+      "goal": "陆沉守住资格。",
+      "conflict": "重测条件被赵衡暗改。",
+      "payoff": "裂纹再次共鸣。",
+      "informationGain": "禁地令牌与测试石同源。",
+      "endingHook": "令牌在禁地门前亮起。"
+    }
+  ],
+  "sourceFiles": ["outlines/volume-001.draft.json"],
+  "sourceDigest": [
+    {
+      "file": "outlines/volume-001.draft.json",
+      "excerpt": "陆沉进入宗门，夺到第一条资源链。"
+    }
+  ],
+  "generatedAt": "2026-06-09T12:10:00.000Z"
+}

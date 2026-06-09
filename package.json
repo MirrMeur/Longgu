@@ -1,6 +1,6 @@
 {
   "name": "@longgu/cli",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "verify": "npm run typecheck && npm run build && npm test && openspec validate --all",
     "cli": "node dist/cli/index.js",
     "dev:cli": "tsx src/cli/index.ts"
   },

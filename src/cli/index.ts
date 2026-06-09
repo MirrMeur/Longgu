@@ -27,7 +27,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.9.0");
+  .version("1.0.0");
 
 program
   .command("init")

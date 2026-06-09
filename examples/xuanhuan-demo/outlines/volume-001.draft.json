@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "longgu.volume-plan-draft.v0.2",
+  "status": "draft",
+  "volumeId": "001",
+  "title": "裂石少年 第一卷",
+  "genre": "玄幻",
+  "bookPlanSource": "outlines/book.draft.json",
+  "volumeGoal": "陆沉进入宗门，夺到第一条资源链，并让高层注意裂纹灵根。",
+  "primaryAntagonist": "外门执事赵衡",
+  "conflictEscalation": [
+    {
+      "step": "opening",
+      "pressure": "欠债少年被要求放弃测试资格。",
+      "expectedPayoff": "测试石异动，资格被迫公开承认。"
+    },
+    {
+      "step": "middle",
+      "pressure": "赵衡扣下新弟子灵石。",
+      "expectedPayoff": "陆沉在讲堂公开夺回灵石。"
+    },
+    {
+      "step": "climax",
+      "pressure": "赵衡设计禁地事故。",
+      "expectedPayoff": "禁地令牌认主。"
+    }
+  ],
+  "resourceChanges": [
+    {
+      "resource": "灵石",
+      "from": "欠三枚",
+      "to": "持有三枚"
+    }
+  ],
+  "keyPayoffs": ["测试石裂纹", "讲堂公开反击", "禁地令牌亮起"],
+  "endingHook": "宗门长老认出裂纹来自失踪祖师。",
+  "chapterSeedCount": 3,
+  "sourceFiles": ["outlines/book.draft.json"],
+  "sourceDigest": [
+    {
+      "file": "outlines/book.draft.json",
+      "excerpt": "负债少年陆沉以异常灵根撬开宗门资源链。"
+    }
+  ],
+  "generatedAt": "2026-06-09T12:05:00.000Z"
+}

@@ -9,6 +9,37 @@ import { createFixtureWorkspace, createPlanningStateFixture, createRoutingFixtur
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve("src", "cli", "index.ts");
 
+describe("longgu stable CLI discovery", () => {
+  it("reports V1.0 version and stable command groups", async () => {
+    const versionResult = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "--version"], {
+      cwd: path.resolve(".")
+    });
+    expect(versionResult.stdout.trim()).toBe("1.0.0");
+
+    const helpResult = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "--help"], {
+      cwd: path.resolve(".")
+    });
+    for (const command of [
+      "init",
+      "doctor",
+      "write",
+      "plan",
+      "model",
+      "cost",
+      "genre",
+      "context",
+      "experiment",
+      "run",
+      "state",
+      "settle",
+      "audit",
+      "revise"
+    ]) {
+      expect(helpResult.stdout).toContain(command);
+    }
+  });
+});
+
 describe("longgu plan CLI", () => {
   it("creates planning drafts through chapters", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-plan-chapters-"));

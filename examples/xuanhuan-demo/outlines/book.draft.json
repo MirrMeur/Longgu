@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "longgu.book-plan-draft.v0.2",
+  "status": "draft",
+  "title": "裂石少年",
+  "genre": "玄幻",
+  "language": "zh-CN",
+  "premise": {
+    "logline": "负债少年陆沉以异常灵根撬开宗门资源链。",
+    "mainConflict": "外门执事压制寒门弟子，陆沉必须在公开测试中证明价值。",
+    "sellingPoint": "公开测试逆转、资源夺取、宗门高层注意。"
+  },
+  "protagonist": {
+    "name": "陆沉",
+    "desire": "还清灵石债并救回母亲。",
+    "flaw": "习惯独自硬扛，不信任宗门规则。",
+    "cheat": "能听见测试石中的古老裂纹。"
+  },
+  "coreHook": "测试石裂纹会暴露被埋藏的禁地传承。",
+  "conflictLadder": [
+    {
+      "stage": "opening",
+      "pressure": "欠债入门，资格被卡。",
+      "payoff": "测试石公开异动。"
+    },
+    {
+      "stage": "middle",
+      "pressure": "资源被扣，同门围堵。",
+      "payoff": "夺回第一批灵石。"
+    },
+    {
+      "stage": "finale",
+      "pressure": "执事亲自下场。",
+      "payoff": "宗门高层发现裂纹来源。"
+    }
+  ],
+  "powerSystem": {
+    "rules": "灵根共鸣决定吸收灵石效率。",
+    "keyResources": "灵石、测试石、禁地令牌。",
+    "progression": "杂役、外门、内门、真传。"
+  },
+  "readerPromises": ["公开测试逆转", "资源饥饿", "宗门阶梯压迫"],
+  "retentionRisks": [
+    {
+      "risk": "金手指过宽",
+      "mitigation": "裂纹只能提示测试石和禁地相关信息。"
+    }
+  ],
+  "sourceFiles": ["longgu.yaml", "bible/premise.md", "bible/characters.md", "bible/world.md"],
+  "sourceDigest": [
+    {
+      "file": "bible/premise.md",
+      "excerpt": "负债少年入宗门。"
+    }
+  ],
+  "generatedAt": "2026-06-09T12:00:00.000Z"
+}

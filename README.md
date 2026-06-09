@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-项目处于 V0.9 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry、单章上下文包、模型路由与成本估算，并加入本地实验评测闭环。
+项目处于 V1.0 稳定版阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry、单章上下文包、模型路由与成本估算，以及本地实验评测闭环。
 
 已具备：
 
@@ -69,6 +69,7 @@ npm install
 npm run typecheck
 npm run build
 npm test
+npm run verify
 ```
 
 查看 CLI：
@@ -82,6 +83,25 @@ node dist/cli/index.js --help
 
 ```bash
 node dist/cli/index.js init /tmp/longgu-demo
+```
+
+## V1.0 典型流程
+
+```bash
+longgu init ./my-novel
+longgu doctor ./my-novel
+longgu plan book ./my-novel
+longgu plan volume --id 001 ./my-novel
+longgu plan chapters --volume 001 ./my-novel
+longgu state init ./my-novel
+longgu context build --chapter 001 ./my-novel
+longgu write chapter --id 001 ./my-novel
+longgu audit chapter --id 001 ./my-novel
+longgu revise chapter --id 001 ./my-novel
+longgu settle chapter --id 001 ./my-novel
+longgu model list ./my-novel
+longgu cost report ./my-novel
+longgu experiment create --id opening-ab --goal "测试开篇钩子" ./my-novel
 ```
 
 ## 项目结构
@@ -121,6 +141,7 @@ proposal -> specs -> design -> tasks -> implementation -> validation -> archive
 - `openspec/specs/context-builder/spec.md`
 - `openspec/specs/model-routing-cost/spec.md`
 - `openspec/specs/experiments/spec.md`
+- `openspec/specs/stable-harness/spec.md`
 
 ## 品牌与包名
 
