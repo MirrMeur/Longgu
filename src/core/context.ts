@@ -10,7 +10,7 @@ import {
 import { loadLongguConfig } from "./config.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { loadStateLedger, stateLedgerFiles } from "./state.js";
-import { pathExists } from "./workspace.js";
+import { loadBibleContext, pathExists } from "./workspace.js";
 
 const contextPackSchemaVersion = z.literal("longgu.context-pack.v0.7");
 
@@ -133,6 +133,8 @@ async function collectContextCandidates(workspaceDir: string, chapterId: string)
   const chapterPlan = await findChapterPlan(workspaceDir, chapterId);
   const volumePlan = chapterPlan ? await findVolumePlan(workspaceDir, chapterPlan.plan.volumeId) : null;
   const summaries = await loadChapterSummaries(workspaceDir, chapterId);
+  const previousChapters = await loadPreviousChapterBodies(workspaceDir, chapterId);
+  const bibleSections = await loadBibleSections(workspaceDir);
   const stateSections = await loadStateSections(workspaceDir);
   const styleSection = await loadStyleSection(workspaceDir);
   const genreCard = resolveGenreCard(config.genre);
@@ -183,8 +185,10 @@ async function collectContextCandidates(workspaceDir: string, chapterId: string)
     candidates.push(styleSection);
   }
 
+  candidates.push(...bibleSections);
   candidates.push(...stateSections);
   candidates.push(...summaries);
+  candidates.push(...previousChapters);
   return candidates;
 }
 
@@ -241,6 +245,48 @@ async function loadChapterSummaries(workspaceDir: string, chapterId: string): Pr
       reason: `历史章节 ${summary.chapterId} 的摘要，用于保持近期剧情连续性。`,
       priority: "low",
       content: JSON.stringify(summary, null, 2)
+    }));
+}
+
+async function loadBibleSections(workspaceDir: string): Promise<ContextCandidate[]> {
+  const bibleContext = await loadBibleContext(workspaceDir).catch(() => []);
+  return bibleContext
+    .filter((item) => item.file !== path.join("bible", "style.md"))
+    .map((item) => ({
+      id: `bible-${path.basename(item.file, ".md")}`,
+      source: item.file,
+      reason: `${item.file} 是 V0.1 基础项目资料，提供当前章节生成的底层设定。`,
+      priority: "medium",
+      content: item.content
+    }));
+}
+
+async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {
+  const chaptersDir = path.join(workspaceDir, "chapters");
+  const entries = await readdir(chaptersDir).catch(() => []);
+  const chapters: { chapterId: string; file: string; content: string }[] = [];
+  for (const file of entries.filter((entry) => entry.endsWith(".md")).sort()) {
+    const existingChapterId = file.slice(0, -".md".length);
+    if (existingChapterId === chapterId || existingChapterId.localeCompare(chapterId) >= 0) {
+      continue;
+    }
+    const relative = path.join("chapters", file);
+    chapters.push({
+      chapterId: existingChapterId,
+      file: relative,
+      content: await readFile(path.join(workspaceDir, relative), "utf8")
+    });
+  }
+
+  return chapters
+    .sort((left, right) => right.chapterId.localeCompare(left.chapterId))
+    .slice(0, 2)
+    .map((chapter) => ({
+      id: `previous-chapter-${chapter.chapterId}`,
+      source: chapter.file,
+      reason: `历史章节 ${chapter.chapterId} 的正文，用于让当前章节从近期结尾自然衔接，避免重复开场。`,
+      priority: "low",
+      content: chapter.content
     }));
 }
 

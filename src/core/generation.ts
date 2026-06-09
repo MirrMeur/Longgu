@@ -1,11 +1,12 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { GenerateResult } from "../adapters/openaiCompatible.js";
+import { ChaptersPlanDraftSchema, type ChaptersPlanDraft } from "./bookPlan.js";
 import { loadLongguConfig, type LongguConfig } from "./config.js";
+import { buildChapterContext, type ContextPack } from "./context.js";
 import { estimateCost, estimateTokens, resolveModelRoute, type ResolvedModelProfile } from "./modelRouting.js";
 import { renderChapterPrompt } from "./prompt.js";
 import { createRunRecord, finishRunRecord, type RunAttemptMetadata, type RunMetadata } from "./runs.js";
-import { loadBibleContext } from "./workspace.js";
 
 export type GenerateChapterFn = (request: {
   prompt: string;
@@ -23,7 +24,9 @@ export async function writeChapter(input: {
 }): Promise<{ chapterPath: string; runDir: string }> {
   const config = await loadLongguConfig(input.workspaceDir);
   const route = resolveModelRoute(config, "drafting", { important: input.important });
-  const context = await loadBibleContext(input.workspaceDir);
+  const contextResult = await buildChapterContext({ workspaceDir: input.workspaceDir, chapterId: input.chapterId });
+  const context = contextPackToPromptContext(contextResult.pack);
+  const chapterCard = await findChapterCard(input.workspaceDir, input.chapterId);
   const prompt = renderChapterPrompt({ config, chapterId: input.chapterId, context });
   const startedAt = new Date();
   const run = await createRunRecord({
@@ -48,8 +51,9 @@ export async function writeChapter(input: {
     });
     const chapterPath = path.join(input.workspaceDir, "chapters", `${input.chapterId}.md`);
     await mkdir(path.dirname(chapterPath), { recursive: true });
-    await writeFile(chapterPath, routed.result.text, "utf8");
-    const outputTokens = estimateTokens(routed.result.text);
+    const chapterText = normalizeGeneratedChapterHeading(routed.result.text, input.chapterId, chapterCard?.title);
+    await writeFile(chapterPath, chapterText, "utf8");
+    const outputTokens = estimateTokens(chapterText);
     const finishedAt = new Date();
     const metadata: RunMetadata = {
       id: run.id,
@@ -71,7 +75,7 @@ export async function writeChapter(input: {
       estimatedCost: estimateCost(inputTokens, outputTokens, routed.profile.profile.cost),
       attempts: routed.attempts
     };
-    await finishRunRecord({ dir: run.dir, metadata, output: routed.result.text });
+    await finishRunRecord({ dir: run.dir, metadata, output: chapterText });
     return { chapterPath, runDir: run.dir };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -98,6 +102,42 @@ export async function writeChapter(input: {
     await finishRunRecord({ dir: run.dir, metadata, error: message });
     throw new Error(message);
   }
+}
+
+function contextPackToPromptContext(pack: ContextPack): { file: string; content: string }[] {
+  return pack.sections
+    .filter((section) => section.included)
+    .map((section) => ({
+      file: section.source,
+      content: section.content
+    }));
+}
+
+async function findChapterCard(
+  workspaceDir: string,
+  chapterId: string
+): Promise<ChaptersPlanDraft["chapters"][number] | null> {
+  const outlinesDir = path.join(workspaceDir, "outlines");
+  const entries = await readdir(outlinesDir).catch(() => []);
+  for (const file of entries.filter((entry) => entry.startsWith("chapters-") && entry.endsWith(".draft.json")).sort()) {
+    const raw = await readFile(path.join(outlinesDir, file), "utf8");
+    const plan = ChaptersPlanDraftSchema.parse(JSON.parse(raw) as unknown);
+    const chapter = plan.chapters.find((entry) => entry.chapterId === chapterId);
+    if (chapter) {
+      return chapter;
+    }
+  }
+  return null;
+}
+
+function normalizeGeneratedChapterHeading(text: string, chapterId: string, plannedTitle?: string): string {
+  if (!plannedTitle) {
+    return text;
+  }
+
+  const body = text.replace(/^\s*# .*(?:\r?\n|$)/, "").trimStart();
+  const normalized = `# 第${chapterId}章 ${plannedTitle}`;
+  return body ? `${normalized}\n\n${body}` : `${normalized}\n`;
 }
 
 async function generateWithRoute(input: {

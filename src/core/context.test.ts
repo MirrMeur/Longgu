@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,7 +20,17 @@ describe("chapter context builder", () => {
     expect(result.pack.chapterId).toBe("001");
     expect(result.pack.includedSectionCount).toBeGreaterThan(0);
     expect(result.pack.sections.map((section) => section.id)).toEqual(
-      expect.arrayContaining(["chapter-card", "volume-plan", "genre-card", "style-constraints", "state-truth", "summary-000"])
+      expect.arrayContaining([
+        "chapter-card",
+        "volume-plan",
+        "genre-card",
+        "style-constraints",
+        "bible-premise",
+        "bible-characters",
+        "bible-world",
+        "state-truth",
+        "summary-000"
+      ])
     );
     expect(result.pack.sections.find((section) => section.id === "chapter-card")).toMatchObject({
       priority: "critical",
@@ -56,5 +66,27 @@ describe("chapter context builder", () => {
     expect(stateTruth?.included).toBe(true);
     expect(summary?.included).toBe(false);
     expect(result.pack.estimatedTokens).toBeGreaterThan(result.pack.tokenBudget);
+  });
+
+  it("includes previous chapter bodies but excludes the target chapter body", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-previous-chapter-"));
+    await createPlanningStateFixture(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第001章 第一章 入门\n\n陆沉拿到测试资格。", "utf8");
+    await writeFile(path.join(dir, "chapters", "002.md"), "# 第002章 第二章 黑纹\n\n这章旧稿不应进入自己的上下文。", "utf8");
+
+    const result = await buildChapterContext({
+      workspaceDir: dir,
+      chapterId: "002",
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    const previous = result.pack.sections.find((section) => section.id === "previous-chapter-001");
+    expect(previous).toMatchObject({
+      source: "chapters/001.md",
+      priority: "low",
+      included: true
+    });
+    expect(previous?.content).toContain("陆沉拿到测试资格");
+    expect(result.pack.sections.find((section) => section.id === "previous-chapter-002")).toBeUndefined();
   });
 });

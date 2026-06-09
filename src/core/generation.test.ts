@@ -1,8 +1,8 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createFixtureWorkspace, createRoutingFixtureWorkspace } from "../test/testUtils.js";
+import { createFixtureWorkspace, createPlanningStateFixture, createRoutingFixtureWorkspace } from "../test/testUtils.js";
 import { latestRun } from "./runs.js";
 import { writeChapter } from "./generation.js";
 
@@ -28,6 +28,33 @@ describe("writeChapter", () => {
     expect(run?.metadata.inputTokens).toBeGreaterThan(0);
     expect(run?.metadata.outputTokens).toBeGreaterThan(0);
     expect(run?.metadata.estimatedCost).toBe(0);
+  });
+
+  it("renders drafting prompt from the context pack", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-context-pack-"));
+    await createPlanningStateFixture(dir);
+    await writeFile(path.join(dir, "chapters", "000.md"), "# 序章\n\n陆沉欠下三枚灵石。", "utf8");
+    let capturedPrompt = "";
+
+    await writeChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      apiKey: "secret",
+      generate: async ({ prompt }) => {
+        capturedPrompt = prompt;
+        return { text: "# 模型标题\n\n陆沉入局。" };
+      }
+    });
+
+    expect(capturedPrompt).toContain("outlines/chapters-001.draft.json");
+    expect(capturedPrompt).toContain("陆沉拿到入门测试资格");
+    expect(capturedPrompt).toContain("chapters/000.md");
+    expect(capturedPrompt).toContain("陆沉欠下三枚灵石");
+    await expect(readFile(path.join(dir, "context", "001.context.json"), "utf8")).resolves.toContain("previous-chapter-000");
+    const run = await latestRun(dir);
+    expect(run?.metadata.inputFiles).toEqual(
+      expect.arrayContaining(["outlines/chapters-001.draft.json", "chapters/000.md"])
+    );
   });
 
   it("falls back to the configured drafting fallback model", async () => {
@@ -72,6 +99,81 @@ describe("writeChapter", () => {
     const run = await latestRun(dir);
     expect(run?.metadata.modelProfile).toBe("strong");
     await expect(readFile(path.join(dir, "chapters", "001.md"), "utf8")).resolves.toContain("strong-model");
+  });
+
+  it("replaces provider heading with the planned chapter title", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-title-"));
+    await createPlanningStateFixture(dir);
+
+    await writeChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      apiKey: "secret",
+      generate: async () => ({ text: "# 模型生成的标题\n\n陆沉入门测试。" })
+    });
+
+    const chapter = await readFile(path.join(dir, "chapters", "001.md"), "utf8");
+    expect(chapter).toBe("# 第001章 第一章 入门\n\n陆沉入门测试。");
+  });
+
+  it("uses the full compound chapter id in the planned heading", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-compound-title-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(
+      path.join(dir, "outlines", "chapters-001.draft.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapters-plan-draft.v0.2",
+          status: "draft",
+          volumeId: "001",
+          title: "第一卷 章节规划",
+          genre: "玄幻",
+          volumePlanSource: "outlines/volume-001.draft.json",
+          chapterCount: 1,
+          chapters: [
+            {
+              chapterId: "001-002",
+              title: "第二章 黑纹",
+              goal: "",
+              conflict: "",
+              payoff: "",
+              informationGain: "",
+              endingHook: ""
+            }
+          ],
+          sourceFiles: ["outlines/volume-001.draft.json"],
+          sourceDigest: [{ file: "outlines/volume-001.draft.json", excerpt: "" }],
+          generatedAt: "2026-06-09T12:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await writeChapter({
+      workspaceDir: dir,
+      chapterId: "001-002",
+      apiKey: "secret",
+      generate: async () => ({ text: "# 第001章 错误标题\n\n第二章正文。" })
+    });
+
+    const chapter = await readFile(path.join(dir, "chapters", "001-002.md"), "utf8");
+    expect(chapter).toBe("# 第001-002章 第二章 黑纹\n\n第二章正文。");
+  });
+
+  it("keeps provider output unchanged when no matching chapter card exists", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-no-plan-title-"));
+    await createFixtureWorkspace(dir);
+
+    await writeChapter({
+      workspaceDir: dir,
+      chapterId: "999",
+      apiKey: "secret",
+      generate: async () => ({ text: "# 模型标题\n\n未规划章节。" })
+    });
+
+    await expect(readFile(path.join(dir, "chapters", "999.md"), "utf8")).resolves.toBe("# 模型标题\n\n未规划章节。");
   });
 
   it("persists a failed run record when fake provider fails", async () => {
