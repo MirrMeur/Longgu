@@ -7,14 +7,30 @@ export interface RunMetadata {
   id: string;
   status: RunStatus;
   chapterId: string;
+  task?: string;
   provider: string;
   model: string;
+  modelProfile?: string;
   startedAt: string;
   finishedAt?: string;
+  durationMs?: number;
   inputFiles: string[];
   promptFile: string;
   outputFile?: string;
   errorFile?: string;
+  fallbackAttempts?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCost?: number;
+  attempts?: RunAttemptMetadata[];
+}
+
+export interface RunAttemptMetadata {
+  modelProfile: string;
+  provider: string;
+  model: string;
+  status: RunStatus;
+  error?: string;
 }
 
 export interface RunRecordInput {
@@ -75,4 +91,79 @@ export async function latestRun(workspaceDir: string): Promise<{ id: string; dir
   }
 
   return null;
+}
+
+export interface CostReport {
+  totalRuns: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  byTask: CostBreakdown[];
+  byModel: CostBreakdown[];
+}
+
+export interface CostBreakdown {
+  id: string;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}
+
+export async function buildCostReport(workspaceDir: string): Promise<CostReport> {
+  const runs = await readAllRunMetadata(workspaceDir);
+  const report: CostReport = {
+    totalRuns: runs.length,
+    inputTokens: sum(runs.map((run) => run.inputTokens ?? 0)),
+    outputTokens: sum(runs.map((run) => run.outputTokens ?? 0)),
+    estimatedCost: roundCost(sum(runs.map((run) => run.estimatedCost ?? 0))),
+    byTask: aggregateRuns(runs, (run) => run.task ?? "unknown"),
+    byModel: aggregateRuns(runs, (run) => run.modelProfile ?? run.model)
+  };
+  return report;
+}
+
+async function readAllRunMetadata(workspaceDir: string): Promise<RunMetadata[]> {
+  const runsDir = path.join(workspaceDir, "runs");
+  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+  const runs: RunMetadata[] = [];
+  for (const entry of entries.filter((item) => item.isDirectory()).sort((left, right) => left.name.localeCompare(right.name))) {
+    try {
+      const raw = await readFile(path.join(runsDir, entry.name, "metadata.json"), "utf8");
+      runs.push(JSON.parse(raw) as RunMetadata);
+    } catch {
+      continue;
+    }
+  }
+  return runs;
+}
+
+function aggregateRuns(runs: RunMetadata[], keyFn: (run: RunMetadata) => string): CostBreakdown[] {
+  const map = new Map<string, CostBreakdown>();
+  for (const run of runs) {
+    const key = keyFn(run);
+    const existing =
+      map.get(key) ??
+      ({
+        id: key,
+        runs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCost: 0
+      } satisfies CostBreakdown);
+    existing.runs += 1;
+    existing.inputTokens += run.inputTokens ?? 0;
+    existing.outputTokens += run.outputTokens ?? 0;
+    existing.estimatedCost = roundCost(existing.estimatedCost + (run.estimatedCost ?? 0));
+    map.set(key, existing);
+  }
+  return [...map.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function roundCost(value: number): number {
+  return Number(value.toFixed(6));
 }

@@ -132,3 +132,50 @@ export async function createPlanningStateFixture(root: string): Promise<void> {
     "utf8"
   );
 }
+
+export async function createRoutingFixtureWorkspace(root: string): Promise<void> {
+  await createFixtureWorkspace(root);
+  await writeFile(
+    path.join(root, "longgu.yaml"),
+    `title: 测试小说
+genre: 玄幻
+language: zh-CN
+provider:
+  name: openai-compatible
+  baseUrl: https://api.example.com/v1
+  model: legacy-model
+  apiKeyEnv: LEGACY_API_KEY
+  temperature: 0.7
+  maxTokens: 1200
+models:
+  fast:
+    provider:
+      name: openai-compatible
+      baseUrl: https://api.example.com/v1
+      model: fast-model
+      apiKeyEnv: FAST_API_KEY
+      temperature: 0.6
+      maxTokens: 900
+    cost:
+      inputPer1K: 0.001
+      outputPer1K: 0.002
+  strong:
+    provider:
+      name: openai-compatible
+      baseUrl: https://api.example.com/v1
+      model: strong-model
+      apiKeyEnv: STRONG_API_KEY
+      temperature: 0.8
+      maxTokens: 2000
+    cost:
+      inputPer1K: 0.01
+      outputPer1K: 0.03
+routes:
+  drafting:
+    model: fast
+    fallback: strong
+    importantModel: strong
+`,
+    "utf8"
+  );
+}

@@ -6,13 +6,14 @@
 
 ## 当前状态
 
-项目处于 V0.7 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry，并能为单章生成可审查的上下文包。
+项目处于 V0.8 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry、单章上下文包，并加入模型路由与成本估算。
 
 已具备：
 
 - `longgu init`：初始化小说工作区。
 - `longgu doctor`：检查配置、API key、模型连接和文件结构。
-- `longgu write chapter --id 001`：根据基础设定生成单章。
+- `longgu write chapter --id 001`：根据基础设定生成单章，默认走 `drafting` 模型路由。
+- `longgu write chapter --id 001 --important`：按配置升级到重要章节模型。
 - `longgu plan book`：从当前配置和 `bible/` 输入生成开书规格草稿。
 - `longgu plan volume --id 001`：从开书规格草稿生成分卷规划草稿。
 - `longgu plan chapters --volume 001`：从分卷规划草稿生成章节卡草稿。
@@ -28,6 +29,8 @@
 - `longgu genre show 玄幻`：查看匹配后的类型卡 JSON。
 - `longgu context build --chapter 001`：为目标章节生成可审查上下文包。
 - `longgu context build --chapter 001 --max-tokens 4000`：按估算 token 预算构建上下文，低优先级来源会先被裁剪，关键状态仍保留。
+- `longgu model list`：列出已配置模型 profile、成本参数和任务路由。
+- `longgu cost report`：汇总 run metadata 中的 token 与估算成本。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
@@ -43,6 +46,8 @@
 - 类型卡：内置 `xuanhuan`、`xianxia`、`urban`、`urban-system`、`historical`、`sci-fi`、`game-system`、`supernatural-mystery`，支持中文 alias 解析并注入审计/修订 prompt。
 - 上下文目录：`context/`，当前输出 `context/<chapter-id>.context.json` 与 `context/<chapter-id>.context.md`。
 - 上下文包来源包括当前章节卡、分卷规划、状态账本、近期章节摘要、类型卡和 `bible/style.md`；预算不足时优先裁剪低优先级来源，`critical` 状态和章节卡不会被裁剪。
+- 模型配置：兼容旧 `provider`，并支持可选 `models`、`routes`、`fallback`、`importantModel` 与 per-1K token 成本参数。
+- run metadata：生成记录包含 `task`、`modelProfile`、`fallbackAttempts`、`inputTokens`、`outputTokens`、`estimatedCost` 和 `durationMs`。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖

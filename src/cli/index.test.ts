@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { createFixtureWorkspace, createPlanningStateFixture } from "../test/testUtils.js";
+import { createFixtureWorkspace, createPlanningStateFixture, createRoutingFixtureWorkspace } from "../test/testUtils.js";
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve("src", "cli", "index.ts");
@@ -53,6 +53,66 @@ describe("longgu genre CLI", () => {
       cwd: path.resolve(".")
     });
     expect(JSON.parse(showResult.stdout)).toMatchObject({ id: "xuanhuan", name: "玄幻" });
+  });
+});
+
+describe("longgu model and cost CLI", () => {
+  it("lists configured model profiles and routes", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-model-list-"));
+    await createRoutingFixtureWorkspace(dir);
+
+    const result = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "model", "list", dir], {
+      cwd: path.resolve(".")
+    });
+
+    expect(result.stdout).toContain("Models:");
+    expect(result.stdout).toContain("fast\topenai-compatible\tfast-model");
+    expect(result.stdout).toContain("strong\topenai-compatible\tstrong-model");
+    expect(result.stdout).toContain("drafting -> fast fallback=strong important=strong");
+  });
+
+  it("reports aggregated run costs", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-cost-report-"));
+    await createFixtureWorkspace(dir);
+    const runDir = path.join(dir, "runs", "2026-06-09T12-00-00-000Z");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(
+      path.join(runDir, "metadata.json"),
+      `${JSON.stringify(
+        {
+          id: "2026-06-09T12-00-00-000Z",
+          status: "success",
+          chapterId: "001",
+          task: "drafting",
+          provider: "openai-compatible",
+          model: "strong-model",
+          modelProfile: "strong",
+          startedAt: "2026-06-09T12:00:00.000Z",
+          finishedAt: "2026-06-09T12:00:01.000Z",
+          durationMs: 1000,
+          inputFiles: ["bible/premise.md"],
+          promptFile: "prompt.md",
+          outputFile: "output.md",
+          fallbackAttempts: 1,
+          inputTokens: 1000,
+          outputTokens: 500,
+          estimatedCost: 0.025
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "cost", "report", dir], {
+      cwd: path.resolve(".")
+    });
+
+    expect(result.stdout).toContain("Runs: 1");
+    expect(result.stdout).toContain("Input tokens: 1000");
+    expect(result.stdout).toContain("Estimated cost: 0.025");
+    expect(result.stdout).toContain("drafting\t1 run(s)");
+    expect(result.stdout).toContain("strong\t1 run(s)");
   });
 });
 

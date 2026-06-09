@@ -9,8 +9,9 @@ import { loadLongguConfig } from "../core/config.js";
 import { buildChapterContext } from "../core/context.js";
 import { writeChapter } from "../core/generation.js";
 import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
+import { listModelProfiles } from "../core/modelRouting.js";
 import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
-import { latestRun } from "../core/runs.js";
+import { buildCostReport, latestRun } from "../core/runs.js";
 import { initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
 
@@ -19,7 +20,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.7.0");
+  .version("0.8.0");
 
 program
   .command("init")
@@ -59,21 +60,76 @@ write
   .command("chapter")
   .description("Generate a chapter")
   .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .option("--important", "use important drafting model route when configured")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { id: string }) => {
+  .action(async (dir: string, options: { id: string; important?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
-      const config = await loadConfigWithFriendlyErrors(workspaceDir);
-      const apiKey = readApiKey(config.provider.apiKeyEnv);
       const result = await writeChapter({
         workspaceDir,
         chapterId: options.id,
-        apiKey,
+        important: options.important,
+        readApiKey,
         generate: generateWithOpenAICompatible
       });
       console.log(`Generated chapter: ${result.chapterPath}`);
       console.log(`Run record: ${result.runDir}`);
+    });
+  });
+
+const model = program.command("model").description("Inspect Longgu model routing");
+model
+  .command("list")
+  .description("List configured V0.8 model profiles and routes")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = await loadConfigWithFriendlyErrors(workspaceDir);
+      console.log("Models:");
+      for (const profile of listModelProfiles(config)) {
+        console.log(
+          `${profile.id}\t${profile.provider}\t${profile.model}\t${profile.apiKeyEnv}\tinput/1K=${profile.inputPer1K}\toutput/1K=${profile.outputPer1K}`
+        );
+      }
+      console.log("Routes:");
+      const routes = config.routes ?? {};
+      if (Object.keys(routes).length === 0) {
+        console.log("default -> default");
+      } else {
+        for (const [task, route] of Object.entries(routes).sort(([left], [right]) => left.localeCompare(right))) {
+          const fallback = route.fallback ? ` fallback=${route.fallback}` : "";
+          const important = route.importantModel ? ` important=${route.importantModel}` : "";
+          console.log(`${task} -> ${route.model}${fallback}${important}`);
+        }
+      }
+    });
+  });
+
+const cost = program.command("cost").description("Inspect Longgu run costs");
+cost
+  .command("report")
+  .description("Aggregate V0.8 run token and cost estimates")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const report = await buildCostReport(workspaceDir);
+      console.log(`Runs: ${report.totalRuns}`);
+      console.log(`Input tokens: ${report.inputTokens}`);
+      console.log(`Output tokens: ${report.outputTokens}`);
+      console.log(`Estimated cost: ${report.estimatedCost}`);
+      console.log("By task:");
+      for (const item of report.byTask) {
+        console.log(`${item.id}\t${item.runs} run(s)\tinput=${item.inputTokens}\toutput=${item.outputTokens}\tcost=${item.estimatedCost}`);
+      }
+      console.log("By model:");
+      for (const item of report.byModel) {
+        console.log(`${item.id}\t${item.runs} run(s)\tinput=${item.inputTokens}\toutput=${item.outputTokens}\tcost=${item.estimatedCost}`);
+      }
     });
   });
 
