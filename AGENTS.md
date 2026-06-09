@@ -28,6 +28,7 @@
 - 现有规划参考：
   - `docs/网文写作Harness工程整体规划.md`
   - `code_analysis/AI写网文开源项目对比分析.md`
+- `README.md` 面向外部读者，只介绍当前项目、安装、使用、产物和许可；开发流程、OpenSpec/SDD 规则和内部规划不要写进 README，保留在 `AGENTS.md`、`openspec/` 和 `docs/` 中。
 
 ## Implementation Defaults
 

@@ -1,151 +1,229 @@
 # 龙骨 Longgu
 
-中文网文创作工程化 Harness。
+Longgu 是一个面向中文长篇网文创作的工程化 CLI Harness。它把开书设定、分卷拆章、章节生成、质量审计、定点修订、状态沉淀、上下文组装、模型成本和实验评测组织成可落盘、可复查、可迭代的本地工作流。
 
-龙骨 Longgu 不是一个简单的 AI 写作壳，而是面向中文商业网文长篇生产的工程化支撑系统。它用 CLI、规格、状态账本、运行记录和审计流程撑住大纲、伏笔、章节节奏与正文质量。
+它不是单次对话式写作工具。Longgu 更适合用来支撑长篇项目：每次生成、审计、修订和状态更新都会留下文件证据，方便人工审查、版本管理和后续复盘。
 
-## 当前状态
+## 核心能力
 
-项目处于 V1.0 稳定版阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry、单章上下文包、模型路由与成本估算，以及本地实验评测闭环。
+- 小说工作区初始化：创建 `bible/`、`outlines/`、`chapters/`、`state/`、`runs/` 等目录和基础配置。
+- 开书与拆章：生成结构化的书籍规格、分卷规划和章节卡草稿。
+- 单章写作：基于 `longgu.yaml`、`bible/` 和模型路由生成章节正文。
+- 状态账本：维护事实、角色、时间线、伏笔、读者承诺和资源变化，支持章节状态 delta 合并。
+- 章节审计：输出结构化审计 JSON 和 Markdown 报告，包含问题分级、质量分数、修订队列和阻断状态。
+- 定点修订：根据审计结果修订章节，保存修订前后文本、diff、prompt、模型输出和 metadata。
+- 类型卡：内置中文网文类型卡，覆盖玄幻、仙侠、都市、都市系统、历史、科幻、游戏/系统、悬疑灵异。
+- 上下文包：为目标章节组装可审查的 context pack，在预算不足时优先裁剪低优先级内容。
+- 模型路由与成本：支持多模型 profile、任务路由、fallback、重要章节升级和 token/成本估算。
+- 实验评测：登记多个候选稿，写入人工评分，生成对比报告。
 
-已具备：
-
-- `longgu init`：初始化小说工作区。
-- `longgu doctor`：检查配置、API key、模型连接和文件结构。
-- `longgu write chapter --id 001`：根据基础设定生成单章，默认走 `drafting` 模型路由。
-- `longgu write chapter --id 001 --important`：按配置升级到重要章节模型。
-- `longgu plan book`：从当前配置和 `bible/` 输入生成开书规格草稿。
-- `longgu plan volume --id 001`：从开书规格草稿生成分卷规划草稿。
-- `longgu plan chapters --volume 001`：从分卷规划草稿生成章节卡草稿。
-- `longgu state init`：初始化长篇一致性状态账本。
-- `longgu state inspect`：查看状态账本条目数量和更新时间。
-- `longgu settle chapter --id 001`：从章节正文提取状态 delta，经 schema 校验后合并进状态账本。
-- `longgu settle chapter --id 001 --delta state/deltas/001.delta.json`：使用人工或外部工具产出的 delta 执行确定性状态沉淀。
-- `longgu audit chapter --id 001`：对章节进行结构化质量审计，输出 JSON 与 Markdown 报告。
-- `longgu audit chapter --id 001 --input audits/001.raw-audit.json`：使用人工或外部工具产出的 raw audit 执行确定性审计归一化。
-- `longgu revise chapter --id 001`：根据审计结果修订章节，写入修订记录并替换章节正文。
-- `longgu revise chapter --id 001 --input revisions/001.candidate.md`：使用人工或外部工具产出的修订稿执行确定性修订落盘。
-- `longgu genre list`：列出内置 V0.6 类型卡。
-- `longgu genre show 玄幻`：查看匹配后的类型卡 JSON。
-- `longgu context build --chapter 001`：为目标章节生成可审查上下文包。
-- `longgu context build --chapter 001 --max-tokens 4000`：按估算 token 预算构建上下文，低优先级来源会先被裁剪，关键状态仍保留。
-- `longgu model list`：列出已配置模型 profile、成本参数和任务路由。
-- `longgu cost report`：汇总 run metadata 中的 token 与估算成本。
-- `longgu experiment create --id opening-ab --goal "测试开篇钩子"`：创建实验 manifest。
-- `longgu experiment run --id opening-ab --variant hook-a --input drafts/hook-a.md`：登记本地候选稿为实验 variant。
-- `longgu experiment score --id opening-ab --variant hook-a --payoff 8 --hook 9 --ai-flavor 2`：回写人工评分。
-- `longgu experiment compare --id opening-ab --sort hook`：聚合并排序实验报告。
-- `longgu run show`：查看最近一次生成记录。
-- `longgu.yaml` 配置 schema。
-- OpenAI-compatible provider adapter。
-- 成功/失败 run record 落盘。
-- 规划目录：`outlines/`，当前输出 `outlines/book.draft.json`、`outlines/volume-<id>.draft.json` 与 `outlines/chapters-<volume>.draft.json`。
-- 状态目录：`state/`，当前输出 `truth.json`、`characters.json`、`timeline.json`、`hooks.json`、`reader-promises.json` 与 `resources.json`。
-- 状态沉淀记录：`state/settlements/<chapter-id>-<timestamp>/`，包含 `delta.json`、`before.json`、`after.json`、`diff.json`、`metadata.json`；模型提取路径还会保存 `prompt.md` 和 `model-output.txt`。
-- 状态更新采用 id-based delta merge，并内置基础冲突检查，避免模型整份重写状态文件。
-- 审计目录：`audits/`，当前输出 `audits/<id>.audit.json`、`audits/<id>.audit.md`，provider 路径还会输出 `audits/<id>.audit-attempts.json`。
-- 审计结果支持 `critical`、`warning`、`info` 分级，`P0/P1/P2` 会映射到 harness severity，并派生 `blocked` 与 `reviseQueue`。
-- 修订目录：`revisions/<chapter-id>/<timestamp>/`，当前输出 `before.md`、`after.md`、`diff.md`、`metadata.json`、`prompt.md`、`model-output.md`。
-- 修订模式支持 `spot-fix`、`polish`、`rewrite-scene`、`rewrite-chapter`，默认根据审计严重级别选择模式。
-- 类型卡：内置 `xuanhuan`、`xianxia`、`urban`、`urban-system`、`historical`、`sci-fi`、`game-system`、`supernatural-mystery`，支持中文 alias 解析并注入审计/修订 prompt。
-- 上下文目录：`context/`，当前输出 `context/<chapter-id>.context.json` 与 `context/<chapter-id>.context.md`。
-- 上下文包来源包括当前章节卡、分卷规划、状态账本、近期章节摘要、类型卡和 `bible/style.md`；预算不足时优先裁剪低优先级来源，`critical` 状态和章节卡不会被裁剪。
-- 模型配置：兼容旧 `provider`，并支持可选 `models`、`routes`、`fallback`、`importantModel` 与 per-1K token 成本参数。
-- run metadata：生成记录包含 `task`、`modelProfile`、`fallbackAttempts`、`inputTokens`、`outputTokens`、`estimatedCost` 和 `durationMs`。
-- 实验目录：`experiments/<id>/`，当前输出 `manifest.json`、`variants/<variant>/output.md`、`metadata.json`、`scores.json`、`compare.json` 与 `compare.md`。
-- 示例项目：`examples/xuanhuan-demo/`。
-
-## 安装依赖
+## 安装
 
 ```bash
 npm install
+npm run build
 ```
 
 当前开发环境使用 Node.js 24。
 
-## 本地开发
-
-```bash
-npm run typecheck
-npm run build
-npm test
-npm run verify
-```
-
 查看 CLI：
 
 ```bash
-npm run build
 node dist/cli/index.js --help
 ```
 
-初始化一个测试工作区：
+开发时也可以直接运行源码入口：
 
 ```bash
-node dist/cli/index.js init /tmp/longgu-demo
+npm run dev:cli -- --help
 ```
 
-## V1.0 典型流程
+## 快速开始
+
+初始化一个小说工作区：
 
 ```bash
-longgu init ./my-novel
-longgu doctor ./my-novel
-longgu plan book ./my-novel
-longgu plan volume --id 001 ./my-novel
-longgu plan chapters --volume 001 ./my-novel
-longgu state init ./my-novel
-longgu context build --chapter 001 ./my-novel
-longgu write chapter --id 001 ./my-novel
-longgu audit chapter --id 001 ./my-novel
-longgu revise chapter --id 001 ./my-novel
-longgu settle chapter --id 001 ./my-novel
-longgu model list ./my-novel
-longgu cost report ./my-novel
-longgu experiment create --id opening-ab --goal "测试开篇钩子" ./my-novel
+node dist/cli/index.js init ./my-novel
 ```
 
-## 项目结构
+检查工作区、配置和模型连接：
+
+```bash
+node dist/cli/index.js doctor ./my-novel
+```
+
+生成规划草稿：
+
+```bash
+node dist/cli/index.js plan book ./my-novel
+node dist/cli/index.js plan volume --id 001 ./my-novel
+node dist/cli/index.js plan chapters --volume 001 ./my-novel
+```
+
+初始化状态账本并生成章节上下文：
+
+```bash
+node dist/cli/index.js state init ./my-novel
+node dist/cli/index.js context build --chapter 001 ./my-novel
+```
+
+生成、审计、修订和沉淀章节：
+
+```bash
+node dist/cli/index.js write chapter --id 001 ./my-novel
+node dist/cli/index.js audit chapter --id 001 ./my-novel
+node dist/cli/index.js revise chapter --id 001 ./my-novel
+node dist/cli/index.js settle chapter --id 001 ./my-novel
+```
+
+查看模型和成本：
+
+```bash
+node dist/cli/index.js model list ./my-novel
+node dist/cli/index.js cost report ./my-novel
+node dist/cli/index.js run show ./my-novel
+```
+
+创建实验并比较候选稿：
+
+```bash
+node dist/cli/index.js experiment create --id opening-ab --goal "测试开篇钩子" ./my-novel
+node dist/cli/index.js experiment run --id opening-ab --variant hook-a --input drafts/hook-a.md ./my-novel
+node dist/cli/index.js experiment score --id opening-ab --variant hook-a --payoff 8 --hook 9 --ai-flavor 2 ./my-novel
+node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
+```
+
+## 常用命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `longgu init` | 初始化小说工作区 |
+| `longgu doctor` | 检查文件结构、配置、API key 和模型连接 |
+| `longgu plan book` | 生成开书规格草稿 |
+| `longgu plan volume --id 001` | 生成分卷规划草稿 |
+| `longgu plan chapters --volume 001` | 生成章节卡草稿 |
+| `longgu write chapter --id 001` | 生成章节正文 |
+| `longgu state init` | 初始化状态账本 |
+| `longgu state inspect` | 查看状态账本 |
+| `longgu settle chapter --id 001` | 将章节变化沉淀到状态账本 |
+| `longgu audit chapter --id 001` | 生成章节审计报告 |
+| `longgu revise chapter --id 001` | 根据审计结果修订章节 |
+| `longgu genre list` | 列出内置类型卡 |
+| `longgu genre show 玄幻` | 查看匹配后的类型卡 |
+| `longgu context build --chapter 001` | 生成章节上下文包 |
+| `longgu model list` | 列出模型 profile 和路由 |
+| `longgu cost report` | 汇总 run 成本估算 |
+| `longgu experiment create` | 创建实验 |
+| `longgu experiment compare` | 生成实验对比报告 |
+| `longgu run show` | 查看最近一次运行记录 |
+
+## 工作区结构
+
+一个 Longgu 小说工作区通常长这样：
 
 ```text
-src/
-  adapters/          # LLM provider adapter
-  cli/               # longgu CLI entry
-  core/              # config, workspace, prompt, generation, run records
-examples/
-  xuanhuan-demo/     # 示例项目
-openspec/
-  specs/             # 已归档规格
-  changes/           # SDD 变更工作区
-docs/
-  网文写作Harness工程整体规划.md
+my-novel/
+  longgu.yaml
+  bible/
+    premise.md
+    characters.md
+    world.md
+    style.md
+  outlines/
+    book.draft.json
+    volume-001.draft.json
+    chapters-001.draft.json
+  chapters/
+    001.md
+  audits/
+    001.audit.json
+    001.audit.md
+  revisions/
+    001/<timestamp>/
+  state/
+    truth.json
+    characters.json
+    timeline.json
+    hooks.json
+    reader-promises.json
+    resources.json
+  context/
+    001.context.json
+    001.context.md
+  runs/
+    <timestamp>/
+  experiments/
+    opening-ab/
 ```
 
-## SDD 工作流
+## 配置
 
-本项目使用 OpenSpec 做 SDD（Spec-Driven Development）。
+基础配置文件是 `longgu.yaml`：
 
-所有非平凡功能、架构调整、数据结构变化、CLI 行为变化、质量门禁变化，都应先创建 OpenSpec change，再实现：
+```yaml
+title: 未命名小说
+genre: 玄幻
+language: zh-CN
+provider:
+  name: openai-compatible
+  baseUrl: https://api.example.com/v1
+  model: example-model
+  apiKeyEnv: OPENAI_API_KEY
+  temperature: 0.8
+  maxTokens: 3000
+```
+
+也可以配置多个模型 profile 和任务路由：
+
+```yaml
+models:
+  fast:
+    provider:
+      name: openai-compatible
+      baseUrl: https://api.example.com/v1
+      model: cheap-model
+      apiKeyEnv: FAST_API_KEY
+    cost:
+      inputPer1K: 0.001
+      outputPer1K: 0.002
+  strong:
+    provider:
+      name: openai-compatible
+      baseUrl: https://api.example.com/v1
+      model: strong-model
+      apiKeyEnv: STRONG_API_KEY
+    cost:
+      inputPer1K: 0.01
+      outputPer1K: 0.03
+routes:
+  drafting:
+    model: fast
+    fallback: strong
+    importantModel: strong
+  audit:
+    model: strong
+```
+
+## 示例项目
+
+仓库内置了一个玄幻示例：
 
 ```text
-proposal -> specs -> design -> tasks -> implementation -> validation -> archive
+examples/xuanhuan-demo/
 ```
 
-当前正式规格：
+它包含基础 `bible/`、示例规划、状态账本、章节上下文和实验 manifest，可以直接用来了解 Longgu 的文件组织方式。
 
-- `openspec/specs/minimal-cli-harness/spec.md`
-- `openspec/specs/book-planning/spec.md`
-- `openspec/specs/story-state/spec.md`
-- `openspec/specs/chapter-audit/spec.md`
-- `openspec/specs/chapter-revision/spec.md`
-- `openspec/specs/genre-cards/spec.md`
-- `openspec/specs/context-builder/spec.md`
-- `openspec/specs/model-routing-cost/spec.md`
-- `openspec/specs/experiments/spec.md`
-- `openspec/specs/stable-harness/spec.md`
+## 本地验证
 
-## 品牌与包名
+```bash
+npm run verify
+```
 
-- 项目名：龙骨 Longgu。
-- CLI：`longgu`。
-- 当前包名：`@longgu/cli`。
-- 后续包名规划：`@longgu/core`、`@longgu/cli`、`@longgu/genre-cards`。
+该命令会运行 TypeScript 类型检查、构建、测试和规格校验。
+
+## 许可
+
+本项目采用 `PolyForm-Noncommercial-1.0.0` 许可。
+
+允许个人学习、研究、评估和非商业使用；禁止未经授权的商业使用、商业分发、商业托管服务、商业集成和以营利为目的的再发布。完整条款见 [LICENSE](LICENSE)。
