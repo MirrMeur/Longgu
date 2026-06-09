@@ -1,0 +1,10 @@
+title: 负债入玄门
+genre: 玄幻
+language: zh-CN
+provider:
+  name: openai-compatible
+  baseUrl: https://api.example.com/v1
+  model: example-model
+  apiKeyEnv: OPENAI_API_KEY
+  temperature: 0.8
+  maxTokens: 3000
