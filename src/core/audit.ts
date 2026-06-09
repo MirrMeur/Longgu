@@ -14,6 +14,8 @@ const SeveritySchema = z.enum(["critical", "warning", "info"]);
 const CheckerPrioritySchema = z.enum(["P0", "P1", "P2"]);
 const IssueSourceSchema = z.enum(["chapter-plan", "prose", "state", "rule"]);
 const AuditStatusSchema = z.enum(["passed", "needs-revision", "blocked"]);
+const ContractStatusSchema = z.enum(["complete", "incomplete"]);
+const ContractFieldSchema = z.enum(["startHook", "protagonistGoal", "obstacle", "turn", "payoff", "tailHook"]);
 const AuditDimensionSchema = z.enum([
   "role-ooc",
   "timeline-conflict",
@@ -30,6 +32,18 @@ const AuditDimensionSchema = z.enum([
 ]);
 
 const ScoreSchema = z.number().min(0).max(10);
+
+const RawChapterContractSchema = z.object({
+  status: ContractStatusSchema.optional(),
+  missing: z.array(ContractFieldSchema).optional(),
+  startHook: z.string().optional(),
+  protagonistGoal: z.string().optional(),
+  obstacle: z.string().optional(),
+  turn: z.string().optional(),
+  payoff: z.string().optional(),
+  tailHook: z.string().optional(),
+  diagnosis: z.string().optional()
+});
 
 const RawAuditIssueSchema = z.object({
   id: z.string().min(1),
@@ -54,12 +68,25 @@ export const RawChapterAuditSchema = z.object({
     scenePressure: ScoreSchema,
     characterVoice: ScoreSchema
   }),
+  contract: RawChapterContractSchema.optional(),
   issues: z.array(RawAuditIssueSchema),
   sourceFiles: z.array(z.string().min(1)).default([])
 });
 
 const ChapterAuditIssueSchema = RawAuditIssueSchema.extend({
   severity: SeveritySchema
+});
+
+const ChapterContractSchema = z.object({
+  status: ContractStatusSchema,
+  missing: z.array(ContractFieldSchema),
+  startHook: z.string().min(1),
+  protagonistGoal: z.string().min(1),
+  obstacle: z.string().min(1),
+  turn: z.string().min(1),
+  payoff: z.string().min(1),
+  tailHook: z.string().min(1),
+  diagnosis: z.string().min(1)
 });
 
 export const ChapterAuditSchema = z.object({
@@ -70,6 +97,7 @@ export const ChapterAuditSchema = z.object({
   summary: z.string().min(1),
   scores: RawChapterAuditSchema.shape.scores,
   issues: z.array(ChapterAuditIssueSchema),
+  contract: ChapterContractSchema,
   reviseQueue: z.array(z.string().min(1)),
   blocked: z.boolean(),
   sourceFiles: z.array(z.string().min(1)),
@@ -79,6 +107,7 @@ export const ChapterAuditSchema = z.object({
 export type RawChapterAudit = z.infer<typeof RawChapterAuditSchema>;
 export type ChapterAudit = z.infer<typeof ChapterAuditSchema>;
 export type ChapterAuditIssue = z.infer<typeof ChapterAuditIssueSchema>;
+export type ChapterContract = z.infer<typeof ChapterContractSchema>;
 
 export type GenerateChapterAuditFn = (request: {
   prompt: string;
@@ -185,11 +214,58 @@ export function normalizeChapterAudit(input: {
     summary: input.raw.summary,
     scores: input.raw.scores,
     issues,
+    contract: normalizeChapterContract(input.raw.contract),
     reviseQueue: hasCritical ? [] : warningIds,
     blocked: hasCritical,
     sourceFiles: uniqueStrings([...input.sourceFiles, ...input.raw.sourceFiles]),
     generatedAt: input.now.toISOString()
   });
+}
+
+const chapterContractFields = ["startHook", "protagonistGoal", "obstacle", "turn", "payoff", "tailHook"] as const;
+
+const chapterContractFieldLabels: Record<(typeof chapterContractFields)[number], string> = {
+  startHook: "开头压力/钩子",
+  protagonistGoal: "主角当章目标",
+  obstacle: "阻力",
+  turn: "转折",
+  payoff: "可见兑现",
+  tailHook: "章尾钩子"
+};
+
+function normalizeChapterContract(raw?: z.infer<typeof RawChapterContractSchema>): ChapterContract {
+  const explicitMissing = raw?.missing ?? [];
+  const values = Object.fromEntries(
+    chapterContractFields.map((field) => [field, normalizeContractText(raw?.[field])])
+  ) as Record<(typeof chapterContractFields)[number], string>;
+  const missing = chapterContractFields.filter(
+    (field) => explicitMissing.includes(field) || isMissingContractValue(values[field])
+  );
+  const status = missing.length > 0 || raw?.status === "incomplete" ? "incomplete" : "complete";
+  const missingLabels = missing.map((field) => chapterContractFieldLabels[field]).join("、");
+
+  return ChapterContractSchema.parse({
+    status,
+    missing,
+    startHook: missing.includes("startHook") ? "未评估" : values.startHook,
+    protagonistGoal: missing.includes("protagonistGoal") ? "未评估" : values.protagonistGoal,
+    obstacle: missing.includes("obstacle") ? "未评估" : values.obstacle,
+    turn: missing.includes("turn") ? "未评估" : values.turn,
+    payoff: missing.includes("payoff") ? "未评估" : values.payoff,
+    tailHook: missing.includes("tailHook") ? "未评估" : values.tailHook,
+    diagnosis:
+      normalizeContractText(raw?.diagnosis) ||
+      (missing.length > 0 ? `章节契约缺少：${missingLabels}。` : "章节契约完整。")
+  });
+}
+
+function normalizeContractText(value?: string): string {
+  return value?.trim() ?? "";
+}
+
+function isMissingContractValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "" || normalized === "未评估" || normalized === "n/a" || normalized === "na" || normalized === "unknown";
 }
 
 export function normalizeCheckerPriority(priority?: "P0" | "P1" | "P2"): "critical" | "warning" | "info" {
@@ -316,13 +392,18 @@ async function loadStateSnapshot(workspaceDir: string): Promise<{ files: string[
 function renderAuditPrompt(context: AuditContext): string {
   return `你是龙骨 Longgu 的 V0.4 章节质量审计器。请基于中文商业网文标准审计章节，只输出 JSON，不要输出 Markdown，不要解释。
 
-必须输出 schemaVersion 为 "longgu.chapter-audit.v0.4" 的 JSON。字段包括 chapterId, genre, summary, scores, issues, sourceFiles。
+必须输出 schemaVersion 为 "longgu.chapter-audit.v0.4" 的 JSON。字段包括 chapterId, genre, summary, scores, contract, issues, sourceFiles。
 
 severity 可以直接写 critical/warning/info；也可以使用 checkerPriority P0/P1/P2，Longgu 会映射为 critical/warning/info。
 
 必须检查这些维度：role-ooc, timeline-conflict, setting-conflict, power-resource-collapse, hook-omission, weak-payoff, weak-ending-hook, summary-like-prose, ai-explanatory-tone, cliche-density, information-overreach, chapter-goal-drift。
 
 prose scores 必须包含 retention, readability, aiFlavor, scenePressure, characterVoice，范围 0-10。
+
+contract 必须检查章节契约：Because [开头压力/钩子], protagonist tries to [主角当章目标], but [阻力], so [转折], ending with [章尾钩子]。
+contract 字段必须包含 status, missing, startHook, protagonistGoal, obstacle, turn, payoff, tailHook, diagnosis。
+如果 startHook/protagonistGoal/obstacle/turn/payoff/tailHook 任一项缺失或空泛，status 写 incomplete，missing 写缺失字段 id，并在 issues 中添加对应 weak-payoff、weak-ending-hook、hook-omission 或 chapter-goal-drift 问题。
+如果章节契约完整，status 写 complete，missing 写 []。
 
 项目：
 ${JSON.stringify({ title: context.config.title, genre: context.config.genre, language: context.config.language }, null, 2)}
@@ -393,6 +474,18 @@ function renderAuditMarkdown(audit: ChapterAudit): string {
 - AI Flavor: ${audit.scores.aiFlavor}/10
 - Scene Pressure: ${audit.scores.scenePressure}/10
 - Character Voice: ${audit.scores.characterVoice}/10
+
+## Chapter Contract
+
+- Status: ${audit.contract.status}
+- Missing: ${audit.contract.missing.length ? audit.contract.missing.join(", ") : "None"}
+- Start Hook: ${audit.contract.startHook}
+- Protagonist Goal: ${audit.contract.protagonistGoal}
+- Obstacle: ${audit.contract.obstacle}
+- Turn: ${audit.contract.turn}
+- Payoff: ${audit.contract.payoff}
+- Tail Hook: ${audit.contract.tailHook}
+- Diagnosis: ${audit.contract.diagnosis}
 
 ## Issues
 

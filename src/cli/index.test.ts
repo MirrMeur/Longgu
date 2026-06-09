@@ -447,6 +447,7 @@ describe("longgu audit CLI", () => {
 
     expect(result.stdout).toContain("Audit JSON:");
     expect(result.stdout).toContain("Status: needs-revision");
+    expect(result.stdout).toContain("Contract: incomplete");
     expect(result.stdout).toContain("Warning: 1");
     await expect(readFile(path.join(dir, "audits", "001.audit.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.chapter-audit.v0.4\""
@@ -476,6 +477,17 @@ describe("longgu revise CLI", () => {
             aiFlavor: 4,
             scenePressure: 5,
             characterVoice: 6
+          },
+          contract: {
+            status: "complete",
+            missing: [],
+            startHook: "陆沉被外部压力推到宗门门口。",
+            protagonistGoal: "他要进入宗门并保住机会。",
+            obstacle: "旁人质疑他的资格。",
+            turn: "他发现旧问题必须当场解决。",
+            payoff: "章节给出可见状态变化。",
+            tailHook: "新的考验即将出现。",
+            diagnosis: "测试夹具提供完整章节契约。"
           },
           issues: [
             {

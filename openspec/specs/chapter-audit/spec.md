@@ -36,18 +36,35 @@ The system SHALL provide `longgu audit chapter --id <id>` to create structured c
 - **WHEN** a user runs `longgu audit chapter --id 001 --input audits/raw.json`
 - **THEN** the system does not create a model run record for audit generation
 
+#### Scenario: Audit command reports contract status
+- **WHEN** a user runs `longgu audit chapter --id 001`
+- **AND** audit generation succeeds
+- **THEN** the CLI output includes the normalized chapter contract status
+
 ### Requirement: Chapter audit schema
-The system SHALL validate every final chapter audit against a structured V0.4 schema.
+The system SHALL validate every final chapter audit against a structured V0.4 schema, including a chapter contract section that exposes reader-retention mechanics.
 
 #### Scenario: Final audit shape
 - **WHEN** an audit succeeds
-- **THEN** `audits/<id>.audit.json` contains `schemaVersion`, `chapterId`, `genre`, `status`, `summary`, `scores`, `issues`, `reviseQueue`, `blocked`, `sourceFiles`, and `generatedAt`
+- **THEN** `audits/<id>.audit.json` contains `schemaVersion`, `chapterId`, `genre`, `status`, `summary`, `scores`, `issues`, `contract`, `reviseQueue`, `blocked`, `sourceFiles`, and `generatedAt`
 - **THEN** `schemaVersion` is `longgu.chapter-audit.v0.4`
 
 #### Scenario: Issue shape
 - **WHEN** an audit issue is written
 - **THEN** it contains `id`, `severity`, `source`, `dimension`, `location`, `reason`, and `fix`
 - **THEN** `severity` is one of `critical`, `warning`, or `info`
+
+#### Scenario: Chapter contract shape
+- **WHEN** an audit succeeds
+- **THEN** `contract` contains `status`, `missing`, `startHook`, `protagonistGoal`, `obstacle`, `turn`, `payoff`, `tailHook`, and `diagnosis`
+- **THEN** `status` is either `complete` or `incomplete`
+- **THEN** `missing` contains only missing contract field ids
+
+#### Scenario: Legacy raw audit input without contract
+- **WHEN** a user provides valid raw audit input that does not include `contract`
+- **THEN** the system still writes a final audit
+- **AND** the final audit has `contract.status` set to `incomplete`
+- **AND** the final audit lists all required contract fields in `contract.missing`
 
 ### Requirement: Checker severity normalization
 The system SHALL normalize checker-style priorities into Longgu audit severities.
@@ -101,6 +118,11 @@ The system SHALL create a human-readable Markdown projection for every successfu
 - **THEN** `audits/<id>.audit.md` includes the chapter id, status, blocked flag, score summary, and issue list
 - **THEN** the JSON audit remains the source of truth
 
+#### Scenario: Markdown report includes chapter contract
+- **WHEN** an audit succeeds
+- **THEN** `audits/<id>.audit.md` includes chapter contract status, missing fields, start hook, protagonist goal, obstacle, turn, payoff, tail hook, and diagnosis
+- **THEN** the JSON audit remains the source of truth
+
 ### Requirement: Provider audit retry
 The system SHALL retry provider audit extraction once when the first provider output is not valid audit JSON.
 
@@ -113,4 +135,3 @@ The system SHALL retry provider audit extraction once when the first provider ou
 - **WHEN** both provider audit attempts fail validation
 - **THEN** the system reports the final error
 - **THEN** no final audit JSON or Markdown is written
-

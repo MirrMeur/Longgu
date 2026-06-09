@@ -78,10 +78,79 @@ describe("chapter audit", () => {
     expect(result.audit.blocked).toBe(false);
     expect(result.audit.reviseQueue).toEqual(["issue-001"]);
     expect(result.audit.issues[0]?.severity).toBe("warning");
+    expect(result.audit.contract.status).toBe("incomplete");
+    expect(result.audit.contract.missing).toEqual([
+      "startHook",
+      "protagonistGoal",
+      "obstacle",
+      "turn",
+      "payoff",
+      "tailHook"
+    ]);
     expect(ChapterAuditSchema.parse(JSON.parse(await readFile(result.jsonPath, "utf8")) as unknown).schemaVersion).toBe(
       "longgu.chapter-audit.v0.4"
     );
-    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("Chapter Audit 001");
+    const markdown = await readFile(result.markdownPath, "utf8");
+    expect(markdown).toContain("Chapter Audit 001");
+    expect(markdown).toContain("## Chapter Contract");
+    expect(markdown).toContain("Status: incomplete");
+  });
+
+  it("preserves a complete chapter contract from raw audit input", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-contract-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n陆沉被逼上测灵台。\n", "utf8");
+    await mkdir(path.join(dir, "audits"), { recursive: true });
+    const inputPath = path.join(dir, "audits", "001.raw-audit.json");
+    await writeFile(
+      inputPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-audit.v0.4",
+          chapterId: "001",
+          genre: "玄幻",
+          summary: "章节契约完整。",
+          scores: {
+            retention: 8,
+            readability: 8,
+            aiFlavor: 2,
+            scenePressure: 8,
+            characterVoice: 7
+          },
+          contract: {
+            status: "complete",
+            missing: [],
+            startHook: "陆沉被当众逼上测灵台，退一步就失去宗门名额。",
+            protagonistGoal: "他要证明自己仍能点亮灵碑。",
+            obstacle: "执事临时提高测试门槛，旁支弟子当众嘲讽。",
+            turn: "灵碑没有亮，反而吸走他掌心血线，引出旧骨纹。",
+            payoff: "众人确认他不是废脉，而是被封过的异骨。",
+            tailHook: "高台长老认出骨纹来源，要求立刻封场。",
+            diagnosis: "压力、行动、阻力、转折、兑现和尾钩形成连续链条。"
+          },
+          issues: []
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await auditChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      inputPath,
+      config: testConfig,
+      now: new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("passed");
+    expect(result.audit.contract.status).toBe("complete");
+    expect(result.audit.contract.missing).toEqual([]);
+    expect(result.audit.contract.tailHook).toContain("要求立刻封场");
+    const markdown = await readFile(result.markdownPath, "utf8");
+    expect(markdown).toContain("Start Hook: 陆沉被当众逼上测灵台");
+    expect(markdown).toContain("Tail Hook: 高台长老认出骨纹来源");
   });
 
   it("marks critical issues as blocked", async () => {
@@ -184,6 +253,8 @@ describe("chapter audit", () => {
         expect(prompt).toContain("类型卡：悬疑灵异");
         expect(prompt).toContain("线索");
         expect(prompt).toContain("信息遮蔽");
+        expect(prompt).toContain("contract 必须检查章节契约");
+        expect(prompt).toContain("startHook, protagonistGoal, obstacle, turn, payoff, tailHook");
         return {
           text: JSON.stringify({
             schemaVersion: "longgu.chapter-audit.v0.4",

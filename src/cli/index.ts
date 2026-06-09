@@ -592,6 +592,7 @@ audit
       console.log(`Audit Markdown: ${result.markdownPath}`);
       console.log(`Status: ${result.audit.status}`);
       console.log(`Blocked: ${result.audit.blocked}`);
+      console.log(`Contract: ${result.audit.contract.status}`);
       console.log(`Critical: ${criticalCount}`);
       console.log(`Warning: ${warningCount}`);
       console.log(`Next: review ${path.relative(workspaceDir, result.markdownPath)}, then run longgu revise chapter --id ${options.id}.`);

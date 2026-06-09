@@ -121,6 +121,17 @@ function createAudit(input: { severity: "critical" | "warning" | "info" }) {
       scenePressure: 5,
       characterVoice: 6
     },
+    contract: {
+      status: "complete",
+      missing: [],
+      startHook: "陆沉被外部压力推到宗门门口。",
+      protagonistGoal: "他要进入宗门并保住机会。",
+      obstacle: "旁人质疑他的资格。",
+      turn: "他发现旧问题必须当场解决。",
+      payoff: "章节给出可见状态变化。",
+      tailHook: "新的考验即将出现。",
+      diagnosis: "测试夹具提供完整章节契约。"
+    },
     issues: [
       {
         id: "issue-001",
