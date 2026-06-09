@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-项目处于 V0.3 阶段：已具备最小 CLI Harness、小说规格与规划流程，并开始落地长篇状态账本。
+项目处于 V0.3 阶段：已具备最小 CLI Harness、小说规格与规划流程，并完成第一版长篇状态账本沉淀能力。
 
 已具备：
 
@@ -17,12 +17,17 @@
 - `longgu plan volume --id 001`：从开书规格草稿生成分卷规划草稿。
 - `longgu plan chapters --volume 001`：从分卷规划草稿生成章节卡草稿。
 - `longgu state init`：初始化长篇一致性状态账本。
+- `longgu state inspect`：查看状态账本条目数量和更新时间。
+- `longgu settle chapter --id 001`：从章节正文提取状态 delta，经 schema 校验后合并进状态账本。
+- `longgu settle chapter --id 001 --delta state/deltas/001.delta.json`：使用人工或外部工具产出的 delta 执行确定性状态沉淀。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
 - 成功/失败 run record 落盘。
 - 规划目录：`outlines/`，当前输出 `outlines/book.draft.json`、`outlines/volume-<id>.draft.json` 与 `outlines/chapters-<volume>.draft.json`。
 - 状态目录：`state/`，当前输出 `truth.json`、`characters.json`、`timeline.json`、`hooks.json`、`reader-promises.json` 与 `resources.json`。
+- 状态沉淀记录：`state/settlements/<chapter-id>-<timestamp>/`，包含 `delta.json`、`before.json`、`after.json`、`diff.json`、`metadata.json`；模型提取路径还会保存 `prompt.md` 和 `model-output.txt`。
+- 状态更新采用 id-based delta merge，并内置基础冲突检查，避免模型整份重写状态文件。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖

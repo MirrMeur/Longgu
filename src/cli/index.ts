@@ -7,7 +7,7 @@ import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } f
 import { loadLongguConfig } from "../core/config.js";
 import { writeChapter } from "../core/generation.js";
 import { latestRun } from "../core/runs.js";
-import { initStateLedgers } from "../core/state.js";
+import { initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
 
 const program = new Command();
@@ -174,6 +174,53 @@ state
       }
       if (result.overwritten.length > 0) {
         console.log(`Overwritten: ${result.overwritten.join(", ")}`);
+      }
+    });
+  });
+
+state
+  .command("inspect")
+  .description("Inspect V0.3 story state ledgers")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const entries = await inspectState(workspaceDir);
+      console.log("State ledgers:");
+      for (const entry of entries) {
+        console.log(`${entry.ledger}: ${entry.count} item(s), updated ${entry.updatedAt} (${entry.file})`);
+      }
+    });
+  });
+
+const settle = program.command("settle").description("Settle Longgu artifacts into story state");
+settle
+  .command("chapter")
+  .description("Apply a chapter state delta to V0.3 ledgers")
+  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .option("--delta <path>", "state delta JSON path; skips provider extraction when provided")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; delta?: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = options.delta ? undefined : await loadConfigWithFriendlyErrors(workspaceDir);
+      const apiKey = config ? readApiKey(config.provider.apiKeyEnv) : undefined;
+      const result = await settleChapterState({
+        workspaceDir,
+        chapterId: options.id,
+        deltaPath: options.delta,
+        config,
+        apiKey,
+        generate: config ? generateWithOpenAICompatible : undefined
+      });
+      console.log(`Settlement record: ${result.settlementDir}`);
+      for (const diff of result.diff) {
+        const changed = diff.added.length + diff.updated.length + diff.unchanged.length;
+        console.log(
+          `${diff.ledger}: ${changed} touched, ${diff.added.length} added, ${diff.updated.length} updated, ${diff.unchanged.length} unchanged`
+        );
       }
     });
   });

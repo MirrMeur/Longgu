@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -55,5 +55,44 @@ describe("longgu state CLI", () => {
     await expect(readFile(path.join(dir, "state", "truth.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.story-state.v0.3\""
     );
+  });
+
+  it("inspects and settles chapter state", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-state-settle-"));
+    await createFixtureWorkspace(dir);
+    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "state", "init", "--force", dir], {
+      cwd: path.resolve(".")
+    });
+    const inspectResult = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "state", "inspect", dir], {
+      cwd: path.resolve(".")
+    });
+    expect(inspectResult.stdout).toContain("truth: 0 item(s)");
+
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n陆沉得到一枚灵石。\n", "utf8");
+    await mkdir(path.join(dir, "state", "deltas"), { recursive: true });
+    const deltaPath = path.join(dir, "state", "deltas", "001.delta.json");
+    await writeFile(
+      deltaPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.state-delta.v0.3",
+          chapterId: "001",
+          facts: [{ id: "fact-001", text: "陆沉得到一枚灵石。", sourceChapterId: "001" }]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const settleResult = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "settle", "chapter", "--id", "001", "--delta", deltaPath, dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(settleResult.stdout).toContain("Settlement record:");
+    expect(settleResult.stdout).toContain("truth: 1 touched, 1 added");
+    await expect(readFile(path.join(dir, "state", "truth.json"), "utf8")).resolves.toContain("fact-001");
   });
 });
