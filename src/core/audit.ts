@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { LongguConfig } from "./config.js";
 import { loadLongguConfig } from "./config.js";
+import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { stateLedgerFiles, loadStateLedger } from "./state.js";
 import { pathExists } from "./workspace.js";
 
@@ -240,6 +241,7 @@ interface AuditContext {
   chapterText: string;
   chapterPlanText: string;
   stateText: string;
+  genrePrompt: string;
   sourceFiles: string[];
 }
 
@@ -263,6 +265,7 @@ async function loadAuditContext(input: {
     chapterText,
     chapterPlanText: chapterPlan?.content ?? "",
     stateText: stateSnapshot.content,
+    genrePrompt: renderGenrePromptHints(resolveGenreCard(input.config.genre)),
     sourceFiles
   };
 }
@@ -309,6 +312,9 @@ ${JSON.stringify({ title: context.config.title, genre: context.config.genre, lan
 
 章节规划：
 ${context.chapterPlanText || "未找到章节规划。"}
+
+类型卡规则：
+${context.genrePrompt}
 
 状态账本：
 ${context.stateText || "未初始化状态账本。"}

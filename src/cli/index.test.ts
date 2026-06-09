@@ -41,6 +41,21 @@ describe("longgu plan CLI", () => {
   });
 });
 
+describe("longgu genre CLI", () => {
+  it("lists and shows genre cards", async () => {
+    const listResult = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "genre", "list"], {
+      cwd: path.resolve(".")
+    });
+    expect(listResult.stdout).toContain("xuanhuan");
+    expect(listResult.stdout).toContain("supernatural-mystery");
+
+    const showResult = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "genre", "show", "玄幻"], {
+      cwd: path.resolve(".")
+    });
+    expect(JSON.parse(showResult.stdout)).toMatchObject({ id: "xuanhuan", name: "玄幻" });
+  });
+});
+
 describe("longgu state CLI", () => {
   it("initializes baseline state ledgers", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-state-init-"));
@@ -150,5 +165,65 @@ describe("longgu audit CLI", () => {
       "\"schemaVersion\": \"longgu.chapter-audit.v0.4\""
     );
     await expect(readFile(path.join(dir, "audits", "001.audit.md"), "utf8")).resolves.toContain("Chapter Audit 001");
+  });
+});
+
+describe("longgu revise CLI", () => {
+  it("revises a chapter from provided Markdown input", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-revise-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n陆沉站在门口。\n", "utf8");
+    await mkdir(path.join(dir, "audits"), { recursive: true });
+    await writeFile(
+      path.join(dir, "audits", "001.audit.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-audit.v0.4",
+          chapterId: "001",
+          genre: "玄幻",
+          status: "needs-revision",
+          summary: "需要定点修复。",
+          scores: {
+            retention: 6,
+            readability: 7,
+            aiFlavor: 4,
+            scenePressure: 5,
+            characterVoice: 6
+          },
+          issues: [
+            {
+              id: "issue-001",
+              severity: "warning",
+              source: "prose",
+              dimension: "ai-explanatory-tone",
+              location: "第二段",
+              reason: "解释感过重。",
+              fix: "改成可观察动作。"
+            }
+          ],
+          reviseQueue: ["issue-001"],
+          blocked: false,
+          sourceFiles: ["chapters/001.md"],
+          generatedAt: "2026-06-09T12:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const revisionInput = path.join(dir, "revisions", "001.candidate.md");
+    await mkdir(path.dirname(revisionInput), { recursive: true });
+    await writeFile(revisionInput, "# 第一章\n\n陆沉扣紧袖口，站在门口。\n", "utf8");
+
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "revise", "chapter", "--id", "001", "--input", revisionInput, dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(result.stdout).toContain("Revision record:");
+    expect(result.stdout).toContain("Mode: spot-fix");
+    await expect(readFile(path.join(dir, "chapters", "001.md"), "utf8")).resolves.toContain("扣紧袖口");
   });
 });

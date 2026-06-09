@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-项目处于 V0.4 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本沉淀能力，并开始落地章节审计质量门禁。
+项目处于 V0.6 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环，并内置中文网文类型卡 registry。
 
 已具备：
 
@@ -22,6 +22,10 @@
 - `longgu settle chapter --id 001 --delta state/deltas/001.delta.json`：使用人工或外部工具产出的 delta 执行确定性状态沉淀。
 - `longgu audit chapter --id 001`：对章节进行结构化质量审计，输出 JSON 与 Markdown 报告。
 - `longgu audit chapter --id 001 --input audits/001.raw-audit.json`：使用人工或外部工具产出的 raw audit 执行确定性审计归一化。
+- `longgu revise chapter --id 001`：根据审计结果修订章节，写入修订记录并替换章节正文。
+- `longgu revise chapter --id 001 --input revisions/001.candidate.md`：使用人工或外部工具产出的修订稿执行确定性修订落盘。
+- `longgu genre list`：列出内置 V0.6 类型卡。
+- `longgu genre show 玄幻`：查看匹配后的类型卡 JSON。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
@@ -32,6 +36,9 @@
 - 状态更新采用 id-based delta merge，并内置基础冲突检查，避免模型整份重写状态文件。
 - 审计目录：`audits/`，当前输出 `audits/<id>.audit.json`、`audits/<id>.audit.md`，provider 路径还会输出 `audits/<id>.audit-attempts.json`。
 - 审计结果支持 `critical`、`warning`、`info` 分级，`P0/P1/P2` 会映射到 harness severity，并派生 `blocked` 与 `reviseQueue`。
+- 修订目录：`revisions/<chapter-id>/<timestamp>/`，当前输出 `before.md`、`after.md`、`diff.md`、`metadata.json`、`prompt.md`、`model-output.md`。
+- 修订模式支持 `spot-fix`、`polish`、`rewrite-scene`、`rewrite-chapter`，默认根据审计严重级别选择模式。
+- 类型卡：内置 `xuanhuan`、`xianxia`、`urban`、`urban-system`、`historical`、`sci-fi`、`game-system`、`supernatural-mystery`，支持中文 alias 解析并注入审计/修订 prompt。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖
@@ -95,6 +102,8 @@ proposal -> specs -> design -> tasks -> implementation -> validation -> archive
 - `openspec/specs/book-planning/spec.md`
 - `openspec/specs/story-state/spec.md`
 - `openspec/specs/chapter-audit/spec.md`
+- `openspec/specs/chapter-revision/spec.md`
+- `openspec/specs/genre-cards/spec.md`
 
 ## 品牌与包名
 

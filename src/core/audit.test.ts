@@ -169,6 +169,41 @@ describe("chapter audit", () => {
     await expect(readFile(result.attemptsPath ?? "", "utf8")).resolves.toContain("\"accepted\": false");
   });
 
+  it("injects genre-specific hints into provider audit prompt", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-genre-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n正文。\n", "utf8");
+
+    await auditChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      config: { ...testConfig, genre: "悬疑灵异" },
+      apiKey: "secret",
+      generate: async ({ prompt }) => {
+        expect(prompt).toContain("类型卡：悬疑灵异");
+        expect(prompt).toContain("线索");
+        expect(prompt).toContain("信息遮蔽");
+        return {
+          text: JSON.stringify({
+            schemaVersion: "longgu.chapter-audit.v0.4",
+            chapterId: "001",
+            genre: "悬疑灵异",
+            summary: "测试。",
+            scores: {
+              retention: 8,
+              readability: 8,
+              aiFlavor: 2,
+              scenePressure: 7,
+              characterVoice: 7
+            },
+            issues: []
+          })
+        };
+      },
+      now: new Date("2026-06-09T12:00:00.000Z")
+    });
+  });
+
   it("does not write final artifacts when provider retry is exhausted", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-retry-fail-"));
     await createFixtureWorkspace(dir);

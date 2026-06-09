@@ -7,6 +7,8 @@ import { auditChapter } from "../core/audit.js";
 import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
 import { loadLongguConfig } from "../core/config.js";
 import { writeChapter } from "../core/generation.js";
+import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
+import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
 import { latestRun } from "../core/runs.js";
 import { initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
@@ -16,7 +18,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.4.0");
+  .version("0.6.0");
 
 program
   .command("init")
@@ -128,6 +130,24 @@ plan
       console.log(`Chapters plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
     });
+  });
+
+const genre = program.command("genre").description("Inspect Longgu genre cards");
+genre
+  .command("list")
+  .description("List built-in V0.6 genre cards")
+  .action(() => {
+    for (const card of listGenreCards()) {
+      console.log(`${card.id}\t${card.name}`);
+    }
+  });
+
+genre
+  .command("show")
+  .description("Show a resolved genre card as JSON")
+  .argument("<id>", "genre id or alias")
+  .action((id: string) => {
+    console.log(JSON.stringify(resolveGenreCard(id), null, 2));
   });
 
 const run = program.command("run").description("Inspect generation runs");
@@ -255,6 +275,39 @@ audit
       console.log(`Blocked: ${result.audit.blocked}`);
       console.log(`Critical: ${criticalCount}`);
       console.log(`Warning: ${warningCount}`);
+    });
+  });
+
+const revise = program.command("revise").description("Revise Longgu artifacts");
+revise
+  .command("chapter")
+  .description("Revise a chapter using its V0.5 audit result")
+  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .option("--mode <mode>", "revision mode: spot-fix, polish, rewrite-scene, rewrite-chapter")
+  .option("--input <path>", "revised chapter Markdown path; skips provider revision when provided")
+  .option("--post-audit <path>", "optional post-revision audit JSON for critical-count comparison")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; mode?: string; input?: string; postAudit?: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = await loadConfigWithFriendlyErrors(workspaceDir);
+      const apiKey = options.input ? undefined : readApiKey(config.provider.apiKeyEnv);
+      const mode = options.mode ? RevisionModeSchema.parse(options.mode) : undefined;
+      const result = await reviseChapter({
+        workspaceDir,
+        chapterId: options.id,
+        mode,
+        inputPath: options.input,
+        postAuditPath: options.postAudit,
+        config,
+        apiKey,
+        generate: options.input ? undefined : generateWithOpenAICompatible
+      });
+      console.log(`Revision record: ${result.revisionDir}`);
+      console.log(`Mode: ${result.metadata.mode}`);
+      console.log(`Selected issues: ${result.metadata.selectedIssueIds.length}`);
+      console.log(`Diff: ${result.diffPath}`);
     });
   });
 
