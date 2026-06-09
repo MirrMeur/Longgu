@@ -11,6 +11,7 @@ import {
   compareExperiment,
   createExperiment,
   ExperimentSortKeySchema,
+  generateExperimentVariant,
   registerExperimentVariant,
   scoreExperimentVariant
 } from "../core/experiments.js";
@@ -20,7 +21,7 @@ import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
 import { listModelProfiles } from "../core/modelRouting.js";
 import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
 import { buildCostReport, latestRun } from "../core/runs.js";
-import { initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
+import { checkState, initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
 
 const program = new Command();
@@ -221,6 +222,33 @@ experiment
   );
 
 experiment
+  .command("generate")
+  .description("Generate and register an experiment variant through the experiment model route")
+  .requiredOption("--id <id>", "experiment id")
+  .requiredOption("--variant <id>", "variant id")
+  .requiredOption("--prompt <path>", "prompt Markdown path")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; variant: string; prompt: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = await loadConfigWithFriendlyErrors(workspaceDir);
+      const result = await generateExperimentVariant({
+        workspaceDir,
+        experimentId: options.id,
+        variantId: options.variant,
+        promptPath: options.prompt,
+        config,
+        readApiKey,
+        generate: generateWithOpenAICompatible
+      });
+      console.log(`Variant output: ${result.outputPath}`);
+      console.log(`Variant metadata: ${result.metadataPath}`);
+      console.log(`Run record: ${result.runDir}`);
+    });
+  });
+
+experiment
   .command("score")
   .description("Write human scores for an experiment variant")
   .requiredOption("--id <id>", "experiment id")
@@ -276,14 +304,24 @@ plan
   .command("book")
   .description("Create a structured book specification draft")
   .option("--force", "replace existing outlines/book.draft.json")
+  .option("--model", "use the planning model route instead of deterministic draft generation")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { force?: boolean }) => {
+  .action(async (dir: string, options: { force?: boolean; model?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
-      const result = await createBookPlanDraft({ workspaceDir, force: options.force });
+      const result = await createBookPlanDraft({
+        workspaceDir,
+        force: options.force,
+        model: options.model,
+        readApiKey: options.model ? readApiKey : undefined,
+        generate: options.model ? generateWithOpenAICompatible : undefined
+      });
       console.log(`Book plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+      if (result.runDir) {
+        console.log(`Run record: ${result.runDir}`);
+      }
       console.log("Next: review outlines/book.draft.json, then run longgu plan volume --id 001.");
     });
   });
@@ -293,18 +331,25 @@ plan
   .description("Create a structured volume plan draft")
   .requiredOption("--id <id>", "volume id, e.g. 001")
   .option("--force", "replace existing outlines/volume-<id>.draft.json")
+  .option("--model", "use the planning model route instead of deterministic draft generation")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { id: string; force?: boolean }) => {
+  .action(async (dir: string, options: { id: string; force?: boolean; model?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const result = await createVolumePlanDraft({
         workspaceDir,
         volumeId: options.id,
-        force: options.force
+        force: options.force,
+        model: options.model,
+        readApiKey: options.model ? readApiKey : undefined,
+        generate: options.model ? generateWithOpenAICompatible : undefined
       });
       console.log(`Volume plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+      if (result.runDir) {
+        console.log(`Run record: ${result.runDir}`);
+      }
       console.log(`Next: review outlines/volume-${options.id}.draft.json, then run longgu plan chapters --volume ${options.id}.`);
     });
   });
@@ -314,18 +359,25 @@ plan
   .description("Create structured chapter card drafts for a volume")
   .requiredOption("--volume <id>", "volume id, e.g. 001")
   .option("--force", "replace existing outlines/chapters-<volume>.draft.json")
+  .option("--model", "use the planning model route instead of deterministic draft generation")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { volume: string; force?: boolean }) => {
+  .action(async (dir: string, options: { volume: string; force?: boolean; model?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const result = await createChaptersPlanDraft({
         workspaceDir,
         volumeId: options.volume,
-        force: options.force
+        force: options.force,
+        model: options.model,
+        readApiKey: options.model ? readApiKey : undefined,
+        generate: options.model ? generateWithOpenAICompatible : undefined
       });
       console.log(`Chapters plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+      if (result.runDir) {
+        console.log(`Run record: ${result.runDir}`);
+      }
       console.log(`Next: review chapter cards, then run longgu context build --chapter ${options.volume}-001.`);
     });
   });
@@ -438,6 +490,22 @@ state
     });
   });
 
+state
+  .command("check")
+  .description("Write a V0.3 state consistency check report")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await checkState({ workspaceDir });
+      console.log(`State check JSON: ${result.jsonPath}`);
+      console.log(`State check Markdown: ${result.markdownPath}`);
+      console.log(`Status: ${result.report.status}`);
+      console.log(`Issues: ${result.report.issues.length}`);
+    });
+  });
+
 const settle = program.command("settle").description("Settle Longgu artifacts into story state");
 settle
   .command("chapter")
@@ -450,13 +518,12 @@ settle
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const config = options.delta ? undefined : await loadConfigWithFriendlyErrors(workspaceDir);
-      const apiKey = config ? readApiKey(config.provider.apiKeyEnv) : undefined;
       const result = await settleChapterState({
         workspaceDir,
         chapterId: options.id,
         deltaPath: options.delta,
         config,
-        apiKey,
+        readApiKey,
         generate: config ? generateWithOpenAICompatible : undefined
       });
       console.log(`Settlement record: ${result.settlementDir}`);
@@ -482,13 +549,12 @@ audit
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const config = await loadConfigWithFriendlyErrors(workspaceDir);
-      const apiKey = options.input ? undefined : readApiKey(config.provider.apiKeyEnv);
       const result = await auditChapter({
         workspaceDir,
         chapterId: options.id,
         inputPath: options.input,
         config,
-        apiKey,
+        readApiKey,
         generate: options.input ? undefined : generateWithOpenAICompatible
       });
       const criticalCount = result.audit.issues.filter((issue) => issue.severity === "critical").length;
@@ -517,7 +583,6 @@ revise
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const config = await loadConfigWithFriendlyErrors(workspaceDir);
-      const apiKey = options.input ? undefined : readApiKey(config.provider.apiKeyEnv);
       const mode = options.mode ? RevisionModeSchema.parse(options.mode) : undefined;
       const result = await reviseChapter({
         workspaceDir,
@@ -526,7 +591,7 @@ revise
         inputPath: options.input,
         postAuditPath: options.postAudit,
         config,
-        apiKey,
+        readApiKey,
         generate: options.input ? undefined : generateWithOpenAICompatible
       });
       console.log(`Revision record: ${result.revisionDir}`);

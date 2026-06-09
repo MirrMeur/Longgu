@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { loadLongguConfig } from "./config.js";
+import { loadLongguConfig, type LongguConfig } from "./config.js";
+import { runRoutedTextGeneration, type GenerateTextFn } from "./modelExecution.js";
 import { pathExists, loadBibleContext } from "./workspace.js";
 
 export const BookPlanDraftSchema = z.object({
@@ -125,8 +126,12 @@ export type ChaptersPlanDraft = z.infer<typeof ChaptersPlanDraftSchema>;
 export async function createBookPlanDraft(input: {
   workspaceDir: string;
   force?: boolean;
+  model?: boolean;
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate?: GenerateTextFn;
   now?: Date;
-}): Promise<{ draft: BookPlanDraft; outputPath: string; overwritten: boolean }> {
+}): Promise<{ draft: BookPlanDraft; outputPath: string; overwritten: boolean; runDir?: string }> {
   const outputPath = path.join(input.workspaceDir, "outlines", "book.draft.json");
   const exists = await pathExists(outputPath);
   if (exists && !input.force) {
@@ -136,7 +141,7 @@ export async function createBookPlanDraft(input: {
   const config = await loadLongguConfig(input.workspaceDir);
   const context = await loadBibleContext(input.workspaceDir);
   const sourceFiles = ["longgu.yaml", ...context.map((item) => item.file)];
-  const draft = BookPlanDraftSchema.parse({
+  const seed = BookPlanDraftSchema.parse({
     schemaVersion: "longgu.book-plan-draft.v0.2",
     status: "draft",
     title: config.title,
@@ -173,18 +178,42 @@ export async function createBookPlanDraft(input: {
     })),
     generatedAt: (input.now ?? new Date()).toISOString()
   });
+  const modelResult = input.model
+    ? await generatePlanningDraft({
+        workspaceDir: input.workspaceDir,
+        subjectId: "plan-book",
+        config,
+        kind: "book",
+        prompt: renderPlanningPrompt({
+          kind: "book",
+          schemaVersion: "longgu.book-plan-draft.v0.2",
+          seed,
+          context: contextToPromptContext(sourceFiles, context),
+          instruction: "完善全书规格，补足核心钩子、冲突阶梯、力量体系、读者承诺和留存风险。"
+        }),
+        context: contextToPromptContext(sourceFiles, context),
+        apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
+        generate: input.generate
+      })
+    : undefined;
+  const draft = modelResult ? BookPlanDraftSchema.parse(parseJsonObject(modelResult.text)) : seed;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
-  return { draft, outputPath, overwritten: exists };
+  return { draft, outputPath, overwritten: exists, runDir: modelResult?.runDir };
 }
 
 export async function createVolumePlanDraft(input: {
   workspaceDir: string;
   volumeId: string;
   force?: boolean;
+  model?: boolean;
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate?: GenerateTextFn;
   now?: Date;
-}): Promise<{ draft: VolumePlanDraft; outputPath: string; overwritten: boolean }> {
+}): Promise<{ draft: VolumePlanDraft; outputPath: string; overwritten: boolean; runDir?: string }> {
   const volumeId = normalizePlanId(input.volumeId);
   const bookPlanPath = path.join(input.workspaceDir, "outlines", "book.draft.json");
   if (!(await pathExists(bookPlanPath))) {
@@ -200,7 +229,7 @@ export async function createVolumePlanDraft(input: {
   }
 
   const bookPlan = await loadBookPlanDraft(bookPlanPath);
-  const draft = VolumePlanDraftSchema.parse({
+  const seed = VolumePlanDraftSchema.parse({
     schemaVersion: "longgu.volume-plan-draft.v0.2",
     status: "draft",
     volumeId,
@@ -228,18 +257,47 @@ export async function createVolumePlanDraft(input: {
     ],
     generatedAt: (input.now ?? new Date()).toISOString()
   });
+  const config = await loadLongguConfig(input.workspaceDir);
+  const context = [
+    { file: "outlines/book.draft.json", content: JSON.stringify(bookPlan, null, 2) },
+    ...bookPlan.sourceDigest.map((item) => ({ file: item.file, content: item.excerpt }))
+  ];
+  const modelResult = input.model
+    ? await generatePlanningDraft({
+        workspaceDir: input.workspaceDir,
+        subjectId: `plan-volume-${volumeId}`,
+        config,
+        kind: "volume",
+        prompt: renderPlanningPrompt({
+          kind: "volume",
+          schemaVersion: "longgu.volume-plan-draft.v0.2",
+          seed,
+          context,
+          instruction: "基于全书规格完善该分卷目标、反派压力、冲突阶梯、资源变化、关键爽点和卷尾钩子。"
+        }),
+        context,
+        apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
+        generate: input.generate
+      })
+    : undefined;
+  const draft = modelResult ? VolumePlanDraftSchema.parse(parseJsonObject(modelResult.text)) : seed;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
-  return { draft, outputPath, overwritten: exists };
+  return { draft, outputPath, overwritten: exists, runDir: modelResult?.runDir };
 }
 
 export async function createChaptersPlanDraft(input: {
   workspaceDir: string;
   volumeId: string;
   force?: boolean;
+  model?: boolean;
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate?: GenerateTextFn;
   now?: Date;
-}): Promise<{ draft: ChaptersPlanDraft; outputPath: string; overwritten: boolean }> {
+}): Promise<{ draft: ChaptersPlanDraft; outputPath: string; overwritten: boolean; runDir?: string }> {
   const volumeId = normalizePlanId(input.volumeId);
   const volumePlanSource = `outlines/volume-${volumeId}.draft.json`;
   const volumePlanPath = path.join(input.workspaceDir, volumePlanSource);
@@ -256,7 +314,7 @@ export async function createChaptersPlanDraft(input: {
   }
 
   const volumePlan = await loadVolumePlanDraft(volumePlanPath);
-  const draft = ChaptersPlanDraftSchema.parse({
+  const seed = ChaptersPlanDraftSchema.parse({
     schemaVersion: "longgu.chapters-plan-draft.v0.2",
     status: "draft",
     volumeId,
@@ -275,10 +333,100 @@ export async function createChaptersPlanDraft(input: {
     ],
     generatedAt: (input.now ?? new Date()).toISOString()
   });
+  const config = await loadLongguConfig(input.workspaceDir);
+  const context = [
+    { file: volumePlanSource, content: JSON.stringify(volumePlan, null, 2) },
+    ...volumePlan.sourceDigest.map((item) => ({ file: item.file, content: item.excerpt }))
+  ];
+  const modelResult = input.model
+    ? await generatePlanningDraft({
+        workspaceDir: input.workspaceDir,
+        subjectId: `plan-chapters-${volumeId}`,
+        config,
+        kind: "chapters",
+        prompt: renderPlanningPrompt({
+          kind: "chapters",
+          schemaVersion: "longgu.chapters-plan-draft.v0.2",
+          seed,
+          context,
+          instruction: "基于分卷规划生成完整章节卡，每章必须具备目标、冲突、爽点、信息增量和章尾钩子。"
+        }),
+        context,
+        apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
+        generate: input.generate
+      })
+    : undefined;
+  const draft = modelResult ? ChaptersPlanDraftSchema.parse(parseJsonObject(modelResult.text)) : seed;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
-  return { draft, outputPath, overwritten: exists };
+  return { draft, outputPath, overwritten: exists, runDir: modelResult?.runDir };
+}
+
+async function generatePlanningDraft(input: {
+  workspaceDir: string;
+  subjectId: string;
+  config: LongguConfig;
+  kind: string;
+  prompt: string;
+  context: { file: string; content: string }[];
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate?: GenerateTextFn;
+}): Promise<{ text: string; runDir: string }> {
+  if (!input.generate) {
+    throw new Error(`Model-backed ${input.kind} planning requires a provider generator.`);
+  }
+  const result = await runRoutedTextGeneration({
+    workspaceDir: input.workspaceDir,
+    task: "planning",
+    subjectId: input.subjectId,
+    config: input.config,
+    prompt: input.prompt,
+    context: input.context,
+    apiKey: input.apiKey,
+    readApiKey: input.readApiKey,
+    generate: input.generate
+  });
+  return { text: result.text, runDir: result.runDir };
+}
+
+function renderPlanningPrompt(input: {
+  kind: string;
+  schemaVersion: string;
+  seed: unknown;
+  context: { file: string; content: string }[];
+  instruction: string;
+}): string {
+  return `你是龙骨 Longgu 的规划器。请只输出一个 JSON 对象，不要输出 Markdown，不要解释。
+
+目标：${input.instruction}
+
+必须遵守：
+- schemaVersion 固定为 "${input.schemaVersion}"
+- status 固定为 "draft"
+- 保留 seed 中的稳定字段和 sourceFiles/sourceDigest
+- 不要删减必填字段
+- 所有可编辑规划字段尽量补成具体、可执行、可审查的内容
+
+当前 seed：
+${JSON.stringify(input.seed, null, 2)}
+
+输入上下文：
+${JSON.stringify(input.context, null, 2)}
+
+只输出 ${input.kind} draft JSON：`;
+}
+
+function contextToPromptContext(
+  sourceFiles: string[],
+  context: { file: string; content: string }[]
+): { file: string; content: string }[] {
+  return sourceFiles.map((file) => ({
+    file,
+    content: file === "longgu.yaml" ? "loaded from config" : context.find((item) => item.file === file)?.content ?? ""
+  }));
 }
 
 function createChapterCards(volumePlan: VolumePlanDraft): ChaptersPlanDraft["chapters"] {
@@ -361,6 +509,22 @@ function pickLabeledLine(
 
 function compactExcerpt(content: string): string {
   return content.replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function parseJsonObject(text: string): unknown {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const jsonText = fenced?.[1] ?? extractJsonObject(trimmed);
+  return JSON.parse(jsonText) as unknown;
+}
+
+function extractJsonObject(text: string): string {
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first === -1 || last === -1 || last < first) {
+    throw new Error("Planning generation failed: provider response did not contain a JSON object.");
+  }
+  return text.slice(first, last + 1);
 }
 
 function escapeRegExp(value: string): string {

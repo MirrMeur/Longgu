@@ -14,6 +14,7 @@ import {
   loadChaptersPlanDraft,
   loadVolumePlanDraft
 } from "./bookPlan.js";
+import { latestRun } from "./runs.js";
 
 describe("createBookPlanDraft", () => {
   it("creates a validated book draft from config and bible context", async () => {
@@ -72,6 +73,55 @@ describe("createBookPlanDraft", () => {
     await expect(readFile(draftPath, "utf8")).resolves.toContain("\"schemaVersion\"");
     const saved = await loadBookPlanDraft(draftPath);
     expect(saved.generatedAt).toBe("2026-06-09T02:00:00.000Z");
+  });
+
+  it("creates a model-backed book draft and records a planning run", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-book-model-"));
+    await createFixtureWorkspace(dir);
+
+    const result = await createBookPlanDraft({
+      workspaceDir: dir,
+      model: true,
+      apiKey: "secret",
+      generate: async ({ prompt }) => {
+        expect(prompt).toContain("longgu.book-plan-draft.v0.2");
+        return {
+          text: JSON.stringify({
+            schemaVersion: "longgu.book-plan-draft.v0.2",
+            status: "draft",
+            title: "测试小说",
+            genre: "玄幻",
+            language: "zh-CN",
+            premise: {
+              logline: "负债少年靠异常灵根翻身。",
+              mainConflict: "陆沉与扣资源的宗门执事对抗。",
+              sellingPoint: "每章都有资源逆转。"
+            },
+            protagonist: {
+              name: "陆沉",
+              desire: "还债并查清灵根异常",
+              flaw: "不信任宗门",
+              cheat: "异常灵根"
+            },
+            coreHook: "测试石裂黑纹",
+            conflictLadder: [{ stage: "opening", pressure: "欠债入门", payoff: "测试逆转" }],
+            powerSystem: { rules: "灵石驱动修炼", keyResources: "灵石", progression: "外门到内门" },
+            readerPromises: ["查清黑纹", "夺回资源"],
+            retentionRisks: [{ risk: "解释过多", mitigation: "用场景冲突交代规则" }],
+            sourceFiles: ["longgu.yaml", "bible/premise.md"],
+            sourceDigest: [{ file: "bible/premise.md", excerpt: "少年负债入宗门。" }],
+            generatedAt: "2026-06-09T12:00:00.000Z"
+          })
+        };
+      },
+      now: new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    expect(result.draft.coreHook).toBe("测试石裂黑纹");
+    expect(result.runDir).toContain("runs");
+    const run = await latestRun(dir);
+    expect(run?.metadata.task).toBe("planning");
+    expect(run?.metadata.modelProfile).toBe("default");
   });
 });
 

@@ -11,12 +11,14 @@ import {
   TimelineLedgerSchema,
   TruthLedgerSchema,
   CharactersLedgerSchema,
+  checkState,
   initStateLedgers,
   inspectState,
   loadStateLedger,
   settleChapterState,
   stateLedgerFiles
 } from "./state.js";
+import { latestRun } from "./runs.js";
 
 describe("initStateLedgers", () => {
   it("creates validated baseline ledgers", async () => {
@@ -91,6 +93,65 @@ describe("inspectState", () => {
       updatedAt: "2026-06-09T09:00:00.000Z"
     });
     expect(entries).toHaveLength(6);
+  });
+});
+
+describe("checkState", () => {
+  it("writes a passing state consistency report", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-pass-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+
+    const result = await checkState({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("passed");
+    expect(result.report.issues).toEqual([]);
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("Status: passed");
+  });
+
+  it("reports dangling resource owner references", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-warning-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "resources.json"),
+      `${JSON.stringify(
+        ResourcesLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "resources",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          resources: [
+            {
+              id: "resource-001",
+              name: "灵石",
+              ownerCharacterId: "missing-character",
+              quantity: "1",
+              state: "随身"
+            }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("needs-review");
+    expect(result.report.issues[0]?.reason).toContain("missing-character");
   });
 });
 
@@ -204,6 +265,7 @@ describe("settleChapterState", () => {
 
     expect(result.metadata.deltaSource).toBe("model");
     expect(result.metadata.model).toBe("test-model");
+    expect((await latestRun(dir))?.metadata.task).toBe("settle");
     await expect(readFile(path.join(result.settlementDir, "prompt.md"), "utf8")).resolves.toContain("状态沉淀器");
     await expect(readFile(path.join(result.settlementDir, "model-output.txt"), "utf8")).resolves.toContain("fact-001");
     expect(TruthLedgerSchema.parse(await loadStateLedger(dir, "truth.json")).facts).toHaveLength(1);

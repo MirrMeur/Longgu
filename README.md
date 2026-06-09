@@ -64,7 +64,7 @@ node dist/cli/index.js plan volume --id 001 ./my-novel
 node dist/cli/index.js plan chapters --volume 001 ./my-novel
 ```
 
-每一步都会写入 `outlines/*.draft.json`。继续前先打开这些文件看一遍：不满意就直接编辑 JSON，再进入下一步。
+每一步都会写入 `outlines/*.draft.json`。默认生成 deterministic draft，适合先快速落盘和人工编辑；如果要让模型补完整规划内容，可以给三个规划命令加 `--model`。继续前先打开这些文件看一遍：不满意就直接编辑 JSON，再进入下一步。
 
 初始化状态账本并生成章节上下文：
 
@@ -81,6 +81,7 @@ node dist/cli/index.js audit chapter --id 001 ./my-novel
 node dist/cli/index.js revise chapter --id 001 ./my-novel
 node dist/cli/index.js feedback chapter --id 001 --score 7 --comment "节奏比初稿好，但章尾钩子还弱" ./my-novel
 node dist/cli/index.js settle chapter --id 001 ./my-novel
+node dist/cli/index.js state check ./my-novel
 ```
 
 生成后建议先读 `chapters/001.md`，再看 `audits/001.audit.md`。如果审计阻断或问题较多，先运行 `revise chapter` 或手动改章节；也可以用 `feedback chapter` 记录人工评价，让后续 context pack 带上这些偏好。满意后再 `settle chapter` 写入状态账本。
@@ -97,6 +98,7 @@ node dist/cli/index.js run show ./my-novel
 
 ```bash
 node dist/cli/index.js experiment create --id opening-ab --goal "测试开篇钩子" ./my-novel
+node dist/cli/index.js experiment generate --id opening-ab --variant hook-model --prompt prompts/hook-model.md ./my-novel
 node dist/cli/index.js experiment run --id opening-ab --variant hook-a --input drafts/hook-a.md ./my-novel
 node dist/cli/index.js experiment score --id opening-ab --variant hook-a --payoff 8 --hook 9 --ai-flavor 2 ./my-novel
 node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
@@ -107,13 +109,13 @@ node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | 工作区初始化、配置校验、doctor | 可用 | doctor 使用极简 chat completion 检查 provider 连通性 |
-| 书籍/分卷/章节规划 | 部分实现 | 当前为可编辑 deterministic draft，不是完整 LLM 规划器 |
+| 书籍/分卷/章节规划 | 可用 | 默认可编辑 deterministic draft；`--model` 可走 planning 路由生成 schema-validated draft |
 | 单章写作 | 可用 | 使用 context pack、章节卡和历史章节上下文生成 |
 | 上下文包 | 可用 | 支持 `context.maxTokens` 和 `--max-tokens` 覆盖 |
-| 状态账本 | 部分实现 | 支持初始化、inspect、delta settle |
-| 审计与修订 | 部分实现 | 支持结构化审计/修订记录，质量仍依赖模型和人工复核 |
-| 模型路由与成本 | 部分实现 | drafting 支持路由/fallback/important，其他任务逐步接入 |
-| 实验评测 | 部分实现 | 支持登记候选稿和人工评分对比 |
+| 状态账本 | 可用 | 支持初始化、inspect、delta settle 和一致性 check 报告 |
+| 审计与修订 | 可用 | 支持结构化审计/修订记录、路由运行记录和成本统计；质量仍需人工复核 |
+| 模型路由与成本 | 可用 | planning/drafting/audit/revise/settle/experiment 支持任务路由、fallback 和成本汇总 |
+| 实验评测 | 可用 | 支持模型生成候选稿、登记本地候选稿、人工评分和对比报告 |
 | Claude Code/宿主 LLM 集成 | 规划中 | 独立方向，当前 CLI 仍使用配置的 provider |
 
 ## 常用命令
@@ -125,9 +127,11 @@ node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
 | `longgu plan book` | 生成开书规格草稿 |
 | `longgu plan volume --id 001` | 生成分卷规划草稿 |
 | `longgu plan chapters --volume 001` | 生成章节卡草稿 |
+| `longgu plan book --model` | 使用 planning 路由生成开书规格草稿 |
 | `longgu write chapter --id 001` | 生成章节正文 |
 | `longgu state init` | 初始化状态账本 |
 | `longgu state inspect` | 查看状态账本 |
+| `longgu state check` | 生成状态一致性检查报告 |
 | `longgu settle chapter --id 001` | 将章节变化沉淀到状态账本 |
 | `longgu audit chapter --id 001` | 生成章节审计报告 |
 | `longgu revise chapter --id 001` | 根据审计结果修订章节 |
@@ -137,6 +141,9 @@ node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
 | `longgu model list` | 列出模型 profile 和路由 |
 | `longgu cost report` | 汇总 run 成本估算 |
 | `longgu experiment create` | 创建实验 |
+| `longgu experiment generate` | 通过 experiment 路由生成候选稿 |
+| `longgu experiment run` | 登记本地候选稿 |
+| `longgu experiment score` | 写入候选稿人工评分 |
 | `longgu experiment compare` | 生成实验对比报告 |
 | `longgu feedback chapter --id 001` | 记录章节人工反馈 |
 | `longgu run show` | 查看最近一次运行记录 |

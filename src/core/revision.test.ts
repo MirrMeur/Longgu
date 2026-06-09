@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createFixtureWorkspace } from "../test/testUtils.js";
 import { ChapterAuditSchema } from "./audit.js";
 import { createLineDiff, reviseChapter, selectDefaultRevisionMode } from "./revision.js";
+import { latestRun } from "./runs.js";
 
 const testConfig = {
   title: "测试小说",
@@ -59,6 +60,8 @@ describe("chapter revision", () => {
     await expect(readFile(path.join(result.revisionDir, "metadata.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.chapter-revision.v0.5\""
     );
+    const run = await latestRun(dir);
+    expect(run?.metadata.task).toBe("revise");
   });
 
   it("rejects unchanged provider output", async () => {

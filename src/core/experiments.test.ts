@@ -7,9 +7,11 @@ import {
   compareExperiment,
   createExperiment,
   ExperimentCompareSchema,
+  generateExperimentVariant,
   registerExperimentVariant,
   scoreExperimentVariant
 } from "./experiments.js";
+import { latestRun } from "./runs.js";
 
 describe("experiments", () => {
   it("creates, registers, scores, and compares variants", async () => {
@@ -78,5 +80,40 @@ describe("experiments", () => {
     const written = ExperimentCompareSchema.parse(JSON.parse(await readFile(compared.jsonPath, "utf8")) as unknown);
     expect(written.schemaVersion).toBe("longgu.experiment-compare.v0.9");
     await expect(readFile(compared.markdownPath, "utf8")).resolves.toContain("| hook-a | fast |");
+  });
+
+  it("generates a model-backed variant and includes it in comparison", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-experiment-generate-"));
+    await createFixtureWorkspace(dir);
+    await mkdir(path.join(dir, "prompts"), { recursive: true });
+    await writeFile(path.join(dir, "prompts", "hook-a.md"), "写一个强章尾钩子的候选稿。", "utf8");
+    await createExperiment({
+      workspaceDir: dir,
+      id: "opening-ab",
+      goal: "测试开篇钩子",
+      now: new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    const generated = await generateExperimentVariant({
+      workspaceDir: dir,
+      experimentId: "opening-ab",
+      variantId: "hook-a",
+      promptPath: "prompts/hook-a.md",
+      apiKey: "secret",
+      generate: async ({ prompt }) => ({ text: `# A\n\n${prompt.includes("章尾钩子") ? "测试石裂开。" : "正文"}` }),
+      now: new Date("2026-06-09T12:01:00.000Z")
+    });
+
+    await expect(readFile(generated.outputPath, "utf8")).resolves.toContain("测试石裂开");
+    expect(generated.metadata.runId).toBeDefined();
+    expect(generated.metadata.modelProfile).toBe("default");
+    expect((await latestRun(dir))?.metadata.task).toBe("experiment");
+
+    const compared = await compareExperiment({
+      workspaceDir: dir,
+      experimentId: "opening-ab",
+      now: new Date("2026-06-09T12:02:00.000Z")
+    });
+    expect(compared.compare.variants.map((variant) => variant.variantId)).toEqual(["hook-a"]);
   });
 });

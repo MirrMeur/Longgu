@@ -1,8 +1,5 @@
-# book-planning Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change v0-2-plan-book-draft. Update Purpose after archive.
-## Requirements
 ### Requirement: Book planning CLI command
 The system SHALL provide planning commands that create structured draft artifacts from the current Longgu workspace inputs, either deterministically or through the configured planning model.
 
@@ -91,35 +88,3 @@ The system SHALL provide planning commands that create structured draft artifact
 #### Scenario: Deterministic planning remains default
 - **WHEN** a user runs a planning command without `--model`
 - **THEN** the system creates the same editable deterministic draft behavior as before
-
-### Requirement: Book draft schema
-The system SHALL validate generated planning drafts against structured schemas before writing them.
-
-#### Scenario: Chapters draft contains V0.2 planning fields
-- **WHEN** the system creates a chapters draft
-- **THEN** the draft contains `schemaVersion`, `status`, `volumeId`, `genre`, `volumePlanSource`, `chapterCount`, `chapters`, `sourceFiles`, and `generatedAt`
-- **THEN** each chapter card contains `chapterId`, `title`, `goal`, `conflict`, `payoff`, `informationGain`, and `endingHook`
-- **THEN** each chapter card field is non-empty
-- **THEN** `status` is `draft`
-
-#### Scenario: Draft contains V0.2 planning fields
-- **WHEN** the system creates a book draft
-- **THEN** the draft contains `schemaVersion`, `status`, `title`, `genre`, `premise`, `protagonist`, `coreHook`, `conflictLadder`, `powerSystem`, `readerPromises`, `retentionRisks`, and `sourceFiles`
-- **THEN** `status` is `draft`
-
-#### Scenario: Volume draft contains V0.2 planning fields
-- **WHEN** the system creates a volume draft
-- **THEN** the draft contains `schemaVersion`, `status`, `volumeId`, `title`, `genre`, `bookPlanSource`, `volumeGoal`, `primaryAntagonist`, `conflictEscalation`, `resourceChanges`, `keyPayoffs`, `endingHook`, `chapterSeedCount`, and `sourceFiles`
-- **THEN** `status` is `draft`
-
-### Requirement: Planning artifact directory
-The system SHALL provide an `outlines/` directory as the stable home for V0.2 planning artifacts.
-
-#### Scenario: Initialize workspace with planning directory
-- **WHEN** a user runs `longgu init` in a new target directory
-- **THEN** the system creates `outlines/` alongside `bible/`, `chapters/`, and `runs/`
-
-#### Scenario: Check planning workspace shape
-- **WHEN** a user runs a command that requires a valid workspace
-- **THEN** the workspace shape check includes `outlines/`
-

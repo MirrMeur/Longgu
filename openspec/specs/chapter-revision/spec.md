@@ -4,7 +4,7 @@
 Defines the V0.5 Longgu chapter revision loop: audit-driven revision commands, revision modes, revision history records, line diffs, state-safe rewriting, and deterministic post-audit critical-count checks.
 ## Requirements
 ### Requirement: Chapter revision command
-The system SHALL provide `longgu revise chapter --id <id>` to revise a chapter using its V0.4 audit result.
+The system SHALL provide `longgu revise chapter --id <id>` to revise a chapter using its V0.4 audit result and leave model run evidence when provider generation is used.
 
 #### Scenario: Revise audited chapter
 - **WHEN** a user runs `longgu revise chapter --id 001`
@@ -28,6 +28,16 @@ The system SHALL provide `longgu revise chapter --id <id>` to revise a chapter u
 - **AND** `audits/001.audit.json` does not exist
 - **THEN** the system reports the missing audit
 - **THEN** the chapter is not modified
+
+#### Scenario: Model-backed revision writes run evidence
+- **WHEN** a user runs `longgu revise chapter --id 001` without `--input`
+- **THEN** the system uses the `revise` model route
+- **AND** the system writes a run record under `runs/`
+- **AND** the run metadata records task `revise`, selected model profile, attempts, fallback count, token estimates, and estimated cost
+
+#### Scenario: Provided revision input remains provider-free
+- **WHEN** a user runs `longgu revise chapter --id 001 --input revisions/001.candidate.md`
+- **THEN** the system does not create a model run record for revision generation
 
 ### Requirement: Revision modes
 The system SHALL support `spot-fix`, `polish`, `rewrite-scene`, and `rewrite-chapter` revision modes.
@@ -89,3 +99,4 @@ The system SHALL support deterministic post-audit comparison for critical issue 
 - **AND** the post-audit has the same or more critical issues
 - **THEN** the revision fails
 - **THEN** the chapter is not modified
+

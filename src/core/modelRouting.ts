@@ -1,6 +1,6 @@
 import type { LongguConfig, ModelCost, ModelProfile } from "./config.js";
 
-export const modelTasks = ["planning", "drafting", "audit", "revise", "settle"] as const;
+export const modelTasks = ["planning", "drafting", "audit", "revise", "settle", "experiment"] as const;
 
 export type ModelTask = (typeof modelTasks)[number];
 

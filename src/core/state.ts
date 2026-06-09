@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { LongguConfig } from "./config.js";
+import { runRoutedTextGeneration } from "./modelExecution.js";
 import { pathExists } from "./workspace.js";
 
 const schemaVersion = z.literal("longgu.story-state.v0.3");
@@ -175,9 +176,29 @@ export interface StateSettlementResult {
   metadata: StateSettlementMetadata;
 }
 
+export const StateCheckIssueSchema = z.object({
+  id: z.string().min(1),
+  severity: z.enum(["warning", "critical"]),
+  ledger: z.string().min(1),
+  itemId: z.string().min(1),
+  reason: z.string().min(1)
+});
+
+export const StateCheckReportSchema = z.object({
+  schemaVersion: z.literal("longgu.state-check.v0.3"),
+  status: z.enum(["passed", "needs-review"]),
+  checkedFiles: z.array(z.string().min(1)),
+  issues: z.array(StateCheckIssueSchema),
+  generatedAt: z.string().datetime()
+});
+
+export type StateCheckIssue = z.infer<typeof StateCheckIssueSchema>;
+export type StateCheckReport = z.infer<typeof StateCheckReportSchema>;
+
 export interface StateDeltaModelAttempt {
   attempt: number;
   prompt: string;
+  runDir?: string;
   output?: string;
   error?: string;
   accepted: boolean;
@@ -233,6 +254,30 @@ export async function inspectState(workspaceDir: string): Promise<StateInspectio
   return entries;
 }
 
+export async function checkState(input: {
+  workspaceDir: string;
+  now?: Date;
+}): Promise<{ report: StateCheckReport; jsonPath: string; markdownPath: string }> {
+  const ledgers = await loadAllStateLedgers(input.workspaceDir);
+  const issues = collectStateCheckIssues(ledgers);
+  const generatedAt = input.now ?? new Date();
+  const report = StateCheckReportSchema.parse({
+    schemaVersion: "longgu.state-check.v0.3",
+    status: issues.length > 0 ? "needs-review" : "passed",
+    checkedFiles: stateLedgerFiles.map((file) => path.join("state", file)),
+    issues,
+    generatedAt: generatedAt.toISOString()
+  });
+  const outputDir = path.join(input.workspaceDir, "state", "checks");
+  const stamp = generatedAt.toISOString().replace(/[:.]/g, "-");
+  const jsonPath = path.join(outputDir, `${stamp}.json`);
+  const markdownPath = path.join(outputDir, `${stamp}.md`);
+  await mkdir(outputDir, { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await writeFile(markdownPath, renderStateCheckMarkdown(report), "utf8");
+  return { report, jsonPath, markdownPath };
+}
+
 export async function loadStateLedger(workspaceDir: string, file: (typeof stateLedgerFiles)[number]): Promise<StateLedger> {
   const raw = await readFile(path.join(workspaceDir, "state", file), "utf8");
   const parsed = JSON.parse(raw) as unknown;
@@ -263,6 +308,7 @@ export async function settleChapterState(input: {
   deltaPath?: string;
   config?: LongguConfig;
   apiKey?: string;
+  readApiKey?: (envName: string) => string;
   generate?: GenerateStateDeltaFn;
   now?: Date;
 }): Promise<StateSettlementResult> {
@@ -281,6 +327,7 @@ export async function settleChapterState(input: {
     deltaPath: input.deltaPath,
     config: input.config,
     apiKey: input.apiKey,
+    readApiKey: input.readApiKey,
     generate: input.generate
   });
   const delta = deltaInput.delta;
@@ -402,6 +449,7 @@ async function resolveSettlementDelta(input: {
   deltaPath?: string;
   config?: LongguConfig;
   apiKey?: string;
+  readApiKey?: (envName: string) => string;
   generate?: GenerateStateDeltaFn;
 }): Promise<{
   source: "file" | "model";
@@ -417,7 +465,7 @@ async function resolveSettlementDelta(input: {
     return { source: "file", delta: await loadStateDelta(deltaPath), deltaPath };
   }
 
-  if (!input.config || !input.apiKey || !input.generate) {
+  if (!input.config || (!input.apiKey && !input.readApiKey) || !input.generate) {
     throw new Error("State delta extraction requires provider config and API key when --delta is not provided.");
   }
 
@@ -430,11 +478,21 @@ async function resolveSettlementDelta(input: {
   let lastError = "";
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const result = await input.generate({ prompt, config: input.config, apiKey: input.apiKey });
+    const result = await runRoutedTextGeneration({
+      workspaceDir: input.workspaceDir,
+      task: "settle",
+      subjectId: input.chapterId,
+      config: input.config,
+      prompt,
+      context: [{ file: `chapters/${input.chapterId}.md`, content: input.chapterText }],
+      apiKey: input.apiKey,
+      readApiKey: input.readApiKey,
+      generate: input.generate
+    });
     try {
       const delta = parseStateDeltaFromText(result.text);
       assertDeltaAppliesToState({ chapterId: input.chapterId, ledgers: input.ledgers, delta });
-      attempts.push({ attempt, prompt, output: result.text, accepted: true });
+      attempts.push({ attempt, prompt, runDir: result.runDir, output: result.text, accepted: true });
       return {
         source: "model",
         delta,
@@ -445,7 +503,7 @@ async function resolveSettlementDelta(input: {
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      attempts.push({ attempt, prompt, output: result.text, error: lastError, accepted: false });
+      attempts.push({ attempt, prompt, runDir: result.runDir, output: result.text, error: lastError, accepted: false });
       prompt = renderStateDeltaRetryPrompt({
         chapterId: input.chapterId,
         chapterText: input.chapterText,
@@ -571,6 +629,63 @@ function detectStateConflicts(
   }
 
   return conflicts;
+}
+
+function collectStateCheckIssues(ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>): StateCheckIssue[] {
+  const issues: StateCheckIssue[] = [];
+  const characters = (ledgers["characters.json"] as CharactersLedger).characters;
+  const resources = (ledgers["resources.json"] as ResourcesLedger).resources;
+  const characterIds = new Set(characters.map((character) => character.id));
+
+  for (const character of characters) {
+    for (const relation of character.relationships) {
+      if (!characterIds.has(relation.targetId)) {
+        issues.push(
+          StateCheckIssueSchema.parse({
+            id: `characters-${character.id}-missing-relation-${relation.targetId}`,
+            severity: "warning",
+            ledger: "characters",
+            itemId: character.id,
+            reason: `relationship targetId ${relation.targetId} does not exist in characters ledger`
+          })
+        );
+      }
+    }
+  }
+
+  for (const resource of resources) {
+    if (resource.ownerCharacterId && !characterIds.has(resource.ownerCharacterId)) {
+      issues.push(
+        StateCheckIssueSchema.parse({
+          id: `resources-${resource.id}-missing-owner-${resource.ownerCharacterId}`,
+          severity: "warning",
+          ledger: "resources",
+          itemId: resource.id,
+          reason: `ownerCharacterId ${resource.ownerCharacterId} does not exist in characters ledger`
+        })
+      );
+    }
+  }
+
+  return issues.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function renderStateCheckMarkdown(report: StateCheckReport): string {
+  const issues = report.issues.length
+    ? report.issues
+        .map((issue) => `- [${issue.severity}] ${issue.ledger}/${issue.itemId}: ${issue.reason}`)
+        .join("\n")
+    : "- No issues.";
+  return `# State Check
+
+- Status: ${report.status}
+- Generated at: ${report.generatedAt}
+- Checked files: ${report.checkedFiles.join(", ")}
+
+## Issues
+
+${issues}
+`;
 }
 
 function assertDeltaAppliesToState(input: {

@@ -2,6 +2,9 @@ import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { z } from "zod";
 import { ChapterAuditSchema } from "./audit.js";
+import type { LongguConfig } from "./config.js";
+import { loadLongguConfig } from "./config.js";
+import { runRoutedTextGeneration, type GenerateTextFn } from "./modelExecution.js";
 import type { RunMetadata } from "./runs.js";
 import { pathExists } from "./workspace.js";
 
@@ -142,6 +145,66 @@ export async function registerExperimentVariant(input: {
   }
 
   return { metadata, variantDir, outputPath, metadataPath };
+}
+
+export async function generateExperimentVariant(input: {
+  workspaceDir: string;
+  experimentId: string;
+  variantId: string;
+  promptPath: string;
+  config?: LongguConfig;
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate: GenerateTextFn;
+  now?: Date;
+}): Promise<{ metadata: ExperimentVariantMetadata; variantDir: string; outputPath: string; metadataPath: string; runDir: string }> {
+  const experimentId = normalizeExperimentId(input.experimentId);
+  const variantId = normalizeExperimentId(input.variantId);
+  const manifest = await loadManifest(input.workspaceDir, experimentId);
+  const promptPath = path.isAbsolute(input.promptPath) ? input.promptPath : path.join(input.workspaceDir, input.promptPath);
+  if (!(await pathExists(promptPath))) {
+    throw new Error(`Experiment prompt not found: ${input.promptPath}`);
+  }
+  const prompt = await readFile(promptPath, "utf8");
+  const config = input.config ?? (await loadLongguConfig(input.workspaceDir));
+  const run = await runRoutedTextGeneration({
+    workspaceDir: input.workspaceDir,
+    task: "experiment",
+    subjectId: `experiment-${experimentId}-${variantId}`,
+    config,
+    prompt,
+    context: [{ file: path.relative(input.workspaceDir, promptPath), content: prompt }],
+    apiKey: input.apiKey,
+    readApiKey: input.readApiKey,
+    generate: input.generate,
+    startedAt: input.now
+  });
+
+  const variantDir = path.join(input.workspaceDir, "experiments", experimentId, "variants", variantId);
+  const outputPath = path.join(variantDir, "output.md");
+  const metadataPath = path.join(variantDir, "metadata.json");
+  await mkdir(variantDir, { recursive: true });
+  await writeFile(outputPath, normalizeMarkdown(run.text), "utf8");
+  const metadata = ExperimentVariantMetadataSchema.parse({
+    schemaVersion: "longgu.experiment-variant.v0.9",
+    experimentId,
+    variantId,
+    modelProfile: run.modelProfile,
+    sourceInput: path.relative(input.workspaceDir, promptPath),
+    outputFile: "output.md",
+    registeredAt: (input.now ?? new Date()).toISOString(),
+    runId: run.runId,
+    estimatedCost: run.metadata.estimatedCost
+  });
+  await writeJson(metadataPath, metadata);
+
+  if (!manifest.variants.includes(variantId)) {
+    manifest.variants.push(variantId);
+    manifest.variants.sort();
+    await writeJson(path.join(input.workspaceDir, "experiments", experimentId, "manifest.json"), manifest);
+  }
+
+  return { metadata, variantDir, outputPath, metadataPath, runDir: run.runDir };
 }
 
 export async function scoreExperimentVariant(input: {
@@ -315,4 +378,10 @@ function normalizeExperimentId(value: string): string {
 
 function formatNumber(value: number | undefined): string {
   return value === undefined ? "n/a" : String(value);
+}
+
+function normalizeMarkdown(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:md|markdown)?\s*([\s\S]*?)\s*```$/i);
+  return `${(fenced?.[1] ?? trimmed).trim()}\n`;
 }

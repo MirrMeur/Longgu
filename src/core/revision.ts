@@ -5,6 +5,7 @@ import type { LongguConfig } from "./config.js";
 import { loadLongguConfig } from "./config.js";
 import { ChapterAuditSchema, type ChapterAudit, type ChapterAuditIssue } from "./audit.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
+import { runRoutedTextGeneration } from "./modelExecution.js";
 import { stateLedgerFiles, loadStateLedger } from "./state.js";
 import { pathExists } from "./workspace.js";
 
@@ -48,6 +49,7 @@ export async function reviseChapter(input: {
   postAuditPath?: string;
   config?: LongguConfig;
   apiKey?: string;
+  readApiKey?: (envName: string) => string;
   generate?: GenerateChapterRevisionFn;
   now?: Date;
 }): Promise<ChapterRevisionResult> {
@@ -73,7 +75,9 @@ export async function reviseChapter(input: {
     inputPath: input.inputPath,
     prompt,
     config,
+    chapterId: input.chapterId,
     apiKey: input.apiKey,
+    readApiKey: input.readApiKey,
     generate: input.generate
   });
   const after = normalizeRevisedMarkdown(revisionInput.text);
@@ -164,17 +168,29 @@ async function resolveRevisionInput(input: {
   inputPath?: string;
   prompt: string;
   config: LongguConfig;
+  chapterId: string;
   apiKey?: string;
+  readApiKey?: (envName: string) => string;
   generate?: GenerateChapterRevisionFn;
 }): Promise<{ text: string }> {
   if (input.inputPath) {
     const revisionPath = path.isAbsolute(input.inputPath) ? input.inputPath : path.join(input.workspaceDir, input.inputPath);
     return { text: await readFile(revisionPath, "utf8") };
   }
-  if (!input.apiKey || !input.generate) {
+  if ((!input.apiKey && !input.readApiKey) || !input.generate) {
     throw new Error("Chapter revision requires provider config and API key when --input is not provided.");
   }
-  return input.generate({ prompt: input.prompt, config: input.config, apiKey: input.apiKey });
+  return runRoutedTextGeneration({
+    workspaceDir: input.workspaceDir,
+    task: "revise",
+    subjectId: input.chapterId,
+    config: input.config,
+    prompt: input.prompt,
+    context: [{ file: `chapters/${input.chapterId}.md`, content: "" }],
+    apiKey: input.apiKey,
+    readApiKey: input.readApiKey,
+    generate: input.generate
+  });
 }
 
 function selectRevisionIssues(audit: ChapterAudit): ChapterAuditIssue[] {

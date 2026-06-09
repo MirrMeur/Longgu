@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { LongguConfig } from "./config.js";
 import { loadLongguConfig } from "./config.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
+import { runRoutedTextGeneration } from "./modelExecution.js";
 import { stateLedgerFiles, loadStateLedger } from "./state.js";
 import { pathExists } from "./workspace.js";
 
@@ -88,6 +89,7 @@ export type GenerateChapterAuditFn = (request: {
 export interface ChapterAuditAttempt {
   attempt: number;
   prompt: string;
+  runDir?: string;
   output?: string;
   error?: string;
   accepted: boolean;
@@ -106,6 +108,7 @@ export async function auditChapter(input: {
   inputPath?: string;
   config?: LongguConfig;
   apiKey?: string;
+  readApiKey?: (envName: string) => string;
   generate?: GenerateChapterAuditFn;
   now?: Date;
 }): Promise<ChapterAuditResult> {
@@ -124,9 +127,11 @@ export async function auditChapter(input: {
   const rawInput = input.inputPath
     ? await loadRawAudit(path.isAbsolute(input.inputPath) ? input.inputPath : path.join(input.workspaceDir, input.inputPath))
     : await generateRawAudit({
+        workspaceDir: input.workspaceDir,
         context,
         config,
         apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
         generate: input.generate
       });
 
@@ -207,12 +212,14 @@ async function loadRawAudit(inputPath: string): Promise<RawAuditInput> {
 }
 
 async function generateRawAudit(input: {
+  workspaceDir: string;
   context: AuditContext;
   config: LongguConfig;
   apiKey?: string;
+  readApiKey?: (envName: string) => string;
   generate?: GenerateChapterAuditFn;
 }): Promise<{ raw: RawChapterAudit; attempts: ChapterAuditAttempt[] }> {
-  if (!input.apiKey || !input.generate) {
+  if ((!input.apiKey && !input.readApiKey) || !input.generate) {
     throw new Error("Chapter audit requires provider config and API key when --input is not provided.");
   }
 
@@ -220,14 +227,24 @@ async function generateRawAudit(input: {
   const attempts: ChapterAuditAttempt[] = [];
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const result = await input.generate({ prompt, config: input.config, apiKey: input.apiKey });
+    const result = await runRoutedTextGeneration({
+      workspaceDir: input.workspaceDir,
+      task: "audit",
+      subjectId: input.context.chapterId,
+      config: input.config,
+      prompt,
+      context: input.context.sourceFiles.map((file) => ({ file, content: "" })),
+      apiKey: input.apiKey,
+      readApiKey: input.readApiKey,
+      generate: input.generate
+    });
     try {
       const raw = parseRawAuditFromText(result.text);
-      attempts.push({ attempt, prompt, output: result.text, accepted: true });
+      attempts.push({ attempt, prompt, runDir: result.runDir, output: result.text, accepted: true });
       return { raw, attempts };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      attempts.push({ attempt, prompt, output: result.text, error: lastError, accepted: false });
+      attempts.push({ attempt, prompt, runDir: result.runDir, output: result.text, error: lastError, accepted: false });
       prompt = renderAuditRetryPrompt({ context: input.context, previousOutput: result.text, error: lastError });
     }
   }

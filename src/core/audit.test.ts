@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createFixtureWorkspace } from "../test/testUtils.js";
 import { auditChapter, ChapterAuditSchema, normalizeCheckerPriority } from "./audit.js";
+import { latestRun } from "./runs.js";
 
 const testConfig = {
   title: "测试小说",
@@ -202,6 +203,41 @@ describe("chapter audit", () => {
       },
       now: new Date("2026-06-09T12:00:00.000Z")
     });
+  });
+
+  it("records model-backed audit as an audit run", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-run-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n正文。\n", "utf8");
+
+    await auditChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      config: testConfig,
+      readApiKey: (envName) => `${envName}-secret`,
+      generate: async () => ({
+        text: JSON.stringify({
+          schemaVersion: "longgu.chapter-audit.v0.4",
+          chapterId: "001",
+          genre: "玄幻",
+          summary: "没有明显问题。",
+          scores: {
+            retention: 8,
+            readability: 8,
+            aiFlavor: 2,
+            scenePressure: 7,
+            characterVoice: 7
+          },
+          issues: []
+        })
+      }),
+      now: new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    const run = await latestRun(dir);
+    expect(run?.metadata.task).toBe("audit");
+    expect(run?.metadata.inputTokens).toBeGreaterThan(0);
+    expect(run?.metadata.outputTokens).toBeGreaterThan(0);
   });
 
   it("does not write final artifacts when provider retry is exhausted", async () => {
