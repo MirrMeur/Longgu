@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkOpenAICompatible, generateWithOpenAICompatible } from "./openaiCompatible.js";
-import type { LongguConfig } from "../core/config.js";
+import type { ProviderBackedLongguConfig } from "../core/config.js";
 
-const config: LongguConfig = {
+const config: ProviderBackedLongguConfig = {
   title: "测试小说",
   genre: "玄幻",
   language: "zh-CN",

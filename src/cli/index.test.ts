@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { createFixtureWorkspace, createPlanningStateFixture, createRoutingFixtureWorkspace } from "../test/testUtils.js";
+import {
+  createFixtureWorkspace,
+  createHostOnlyFixtureWorkspace,
+  createPlanningStateFixture,
+  createRoutingFixtureWorkspace
+} from "../test/testUtils.js";
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve("src", "cli", "index.ts");
@@ -165,6 +170,34 @@ describe("longgu feedback CLI", () => {
     expect(result.stdout).toContain("Entries: 1");
     expect(result.stdout).toContain("Next: run longgu context build --chapter 001");
     await expect(readFile(path.join(dir, "feedback", "001.feedback.json"), "utf8")).resolves.toContain("情节推进太慢");
+  });
+});
+
+describe("longgu host LLM write CLI", () => {
+  it("exports a host prompt and imports a host generated chapter", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-host-write-"));
+    await createHostOnlyFixtureWorkspace(dir);
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+
+    const promptResult = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "write", "chapter", "--id", "001", "--host-prompt", dir],
+      { cwd: path.resolve(".") }
+    );
+    expect(promptResult.stdout).toContain("Host prompt:");
+    await expect(readFile(path.join(dir, "host-prompts", "001.prompt.md"), "utf8")).resolves.toContain(
+      "请开始写第 001 章"
+    );
+
+    await writeFile(path.join(dir, "drafts", "001.md"), "# 第一章\n\n宿主模型写出的正文。", "utf8");
+    const importResult = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "write", "chapter", "--id", "001", "--input", "drafts/001.md", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(importResult.stdout).toContain("Imported chapter:");
+    await expect(readFile(path.join(dir, "chapters", "001.md"), "utf8")).resolves.toContain("宿主模型写出的正文");
   });
 });
 

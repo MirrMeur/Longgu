@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { LongguConfig } from "./config.js";
-import { loadLongguConfig } from "./config.js";
+import type { LongguConfig, ProviderBackedLongguConfig } from "./config.js";
+import { loadLongguConfig, requireProviderBackedConfig } from "./config.js";
 import { ChapterAuditSchema, type ChapterAudit, type ChapterAuditIssue } from "./audit.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { runRoutedTextGeneration } from "./modelExecution.js";
@@ -30,7 +30,7 @@ export type ChapterRevisionMetadata = z.infer<typeof ChapterRevisionMetadataSche
 
 export type GenerateChapterRevisionFn = (request: {
   prompt: string;
-  config: LongguConfig;
+  config: ProviderBackedLongguConfig;
   apiKey: string;
 }) => Promise<{ text: string }>;
 
@@ -180,11 +180,12 @@ async function resolveRevisionInput(input: {
   if ((!input.apiKey && !input.readApiKey) || !input.generate) {
     throw new Error("Chapter revision requires provider config and API key when --input is not provided.");
   }
+  const providerConfig = requireProviderBackedConfig(input.config);
   return runRoutedTextGeneration({
     workspaceDir: input.workspaceDir,
     task: "revise",
     subjectId: input.chapterId,
-    config: input.config,
+    config: providerConfig,
     prompt: input.prompt,
     context: [{ file: `chapters/${input.chapterId}.md`, content: "" }],
     apiKey: input.apiKey,

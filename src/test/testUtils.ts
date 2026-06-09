@@ -30,6 +30,20 @@ context:
   await writeFile(path.join(root, "bible", "style.md"), "# Style\n\n节奏快，少解释。\n", "utf8");
 }
 
+export async function createHostOnlyFixtureWorkspace(root: string): Promise<void> {
+  await createFixtureWorkspace(root);
+  await writeFile(
+    path.join(root, "longgu.yaml"),
+    `title: 测试小说
+genre: 玄幻
+language: zh-CN
+context:
+  maxTokens: 16000
+`,
+    "utf8"
+  );
+}
+
 export async function createPlanningStateFixture(root: string): Promise<void> {
   await createFixtureWorkspace(root);
   const now = "2026-06-09T12:00:00.000Z";

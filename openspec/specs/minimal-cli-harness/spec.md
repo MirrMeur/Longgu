@@ -31,20 +31,17 @@ The system SHALL initialize a Longgu novel workspace with the minimum file and d
 - **THEN** missing `state/` is reported as a missing workspace path
 
 ### Requirement: Novel configuration schema
-The system SHALL validate `longgu.yaml` against a schema that supports provider and workflow defaults.
+The system SHALL validate `longgu.yaml` against a schema that supports host-only workflows, provider-backed workflows, and workflow defaults.
 
-#### Scenario: Valid provider configuration
-- **WHEN** `longgu.yaml` contains provider base URL, model name, API key environment variable name, and generation defaults
+#### Scenario: Host-only configuration
+- **WHEN** `longgu.yaml` contains title, genre, language, and context defaults but no `provider`
 - **THEN** the configuration validates successfully
+- **THEN** host-LLM commands that do not call an external provider can run
 
-#### Scenario: Invalid provider configuration
-- **WHEN** `longgu.yaml` is missing a required provider field
-- **THEN** the system reports the missing field with a clear error message
-
-#### Scenario: Context budget configuration
-- **WHEN** `longgu.yaml` contains `context.maxTokens`
-- **THEN** the configuration validates successfully
-- **THEN** context building can use that value when no CLI override is supplied
+#### Scenario: Provider-backed command requires provider configuration
+- **WHEN** a provider-backed command is run in a workspace with no `provider`
+- **THEN** the system reports that provider configuration is required
+- **THEN** the system exits with a non-zero status
 
 ### Requirement: Doctor checks workspace and provider readiness
 The system SHALL provide `longgu doctor` to check workspace structure, configuration validity, API key availability, and model connectivity.
@@ -63,34 +60,28 @@ The system SHALL provide `longgu doctor` to check workspace structure, configura
 - **THEN** `longgu doctor` succeeds if the minimal chat completion check succeeds
 
 ### Requirement: Chapter generation from base inputs
-The system SHALL provide `longgu write chapter --id <id>` to generate a chapter from the current Longgu workspace inputs and prompt template.
+The system SHALL provide `longgu write chapter --id <id>` to generate or import a chapter from the current Longgu workspace inputs and prompt template.
+
+#### Scenario: Export host LLM drafting prompt
+- **WHEN** a user runs `longgu write chapter --id 001 --host-prompt` in a valid host-only workspace
+- **THEN** the system builds a context pack for chapter `001`
+- **THEN** the system renders the drafting prompt from included context-pack sections
+- **THEN** the system writes the prompt to `host-prompts/001.prompt.md`
+- **THEN** the system does not require provider credentials
+
+#### Scenario: Import host LLM chapter draft
+- **WHEN** a user runs `longgu write chapter --id 001 --input drafts/001.md` in a valid host-only workspace
+- **THEN** the system writes the imported Markdown chapter to `chapters/001.md`
+- **THEN** the system creates a run record under `runs/`
+- **THEN** the run metadata marks provider, model, and model profile as host LLM values
+- **THEN** the run metadata records zero estimated cost
 
 #### Scenario: Generate first chapter
-- **WHEN** a user runs `longgu write chapter --id 001` in a valid workspace
+- **WHEN** a user runs `longgu write chapter --id 001` in a valid provider-backed workspace
 - **THEN** the system builds a context pack for chapter `001`
 - **THEN** the system renders the drafting prompt from included context-pack sections
 - **THEN** the system writes the generated chapter to `chapters/001.md`
 - **THEN** the system creates a run record under `runs/`
-
-#### Scenario: Include recent context for consecutive chapter drafting
-- **WHEN** a user runs `longgu write chapter --id 001-002` after `chapters/001-001.md` already exists
-- **THEN** the drafting prompt includes available previous chapter continuity context through the context pack
-- **THEN** the run record input files include the context sources used for drafting
-
-#### Scenario: Do not hide LLM failure
-- **WHEN** the provider returns an error during chapter generation
-- **THEN** the system reports a clear error message
-- **THEN** the system records the failed run details under `runs/`
-- **THEN** the system exits with a non-zero status
-
-#### Scenario: Reasoning model receives reserved output budget
-- **WHEN** the configured provider model name indicates a reasoning model
-- **THEN** the OpenAI-compatible adapter sends a larger request `max_tokens` than the configured `provider.maxTokens`
-
-#### Scenario: Reasoning model exhausts output budget
-- **WHEN** the provider response contains reasoning content but no final message content
-- **THEN** the system reports that the reasoning model may need a larger `provider.maxTokens`
-- **THEN** the failed run record contains the actionable error message
 
 ### Requirement: Persisted generation run records
 The system SHALL persist enough information for each generation run to be reviewed and reproduced.
@@ -128,3 +119,4 @@ The system SHALL include an `examples/xuanhuan-demo/` workspace that demonstrate
 #### Scenario: Example project is inspectable
 - **WHEN** a developer opens `examples/xuanhuan-demo/`
 - **THEN** it contains `longgu.yaml`, base `bible/` files, `chapters/`, and `runs/` placeholders compatible with V0.1 commands
+

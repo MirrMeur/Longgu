@@ -36,7 +36,7 @@ export const LongguConfigSchema = z.object({
   title: z.string().min(1),
   genre: z.string().min(1),
   language: z.string().default("zh-CN"),
-  provider: ProviderConfigSchema,
+  provider: ProviderConfigSchema.optional(),
   context: ContextConfigSchema.default({ maxTokens: 16000 }),
   models: z.record(z.string().min(1), ModelProfileSchema).optional(),
   routes: z.record(z.string().min(1), ModelRouteSchema).optional()
@@ -50,10 +50,23 @@ export type ContextConfig = z.infer<typeof ContextConfigSchema>;
 export type LongguConfig = Omit<z.infer<typeof LongguConfigSchema>, "context"> & {
   context?: ContextConfig;
 };
+export type ProviderBackedLongguConfig = LongguConfig & { provider: ProviderConfig };
 
 export async function loadLongguConfig(workspaceDir: string): Promise<LongguConfig> {
   const configPath = path.join(workspaceDir, "longgu.yaml");
   const raw = await readFile(configPath, "utf8");
   const parsed = YAML.parse(raw) as unknown;
   return LongguConfigSchema.parse(parsed);
+}
+
+export function requireProviderConfig(config: LongguConfig | undefined): Required<Pick<LongguConfig, "provider">>["provider"] {
+  if (!config?.provider) {
+    throw new Error("Provider configuration is required for this command. Add provider settings to longgu.yaml or use a host-LLM workflow.");
+  }
+  return config.provider;
+}
+
+export function requireProviderBackedConfig(config: LongguConfig | undefined): ProviderBackedLongguConfig {
+  requireProviderConfig(config);
+  return config as ProviderBackedLongguConfig;
 }

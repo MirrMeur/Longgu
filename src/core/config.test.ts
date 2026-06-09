@@ -21,8 +21,8 @@ provider:
 
     const config = await loadLongguConfig(dir);
 
-    expect(config.provider.name).toBe("openai-compatible");
-    expect(config.provider.model).toBe("test-model");
+    expect(config.provider?.name).toBe("openai-compatible");
+    expect(config.provider?.model).toBe("test-model");
     expect(config.language).toBe("zh-CN");
     expect(config.context!.maxTokens).toBe(16000);
   });
@@ -61,5 +61,25 @@ provider:
     );
 
     await expect(loadLongguConfig(dir)).rejects.toThrow();
+  });
+
+  it("loads a host-only config without provider settings", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-config-host-"));
+    await writeFile(
+      path.join(dir, "longgu.yaml"),
+      `title: 测试小说
+genre: 玄幻
+language: zh-CN
+context:
+  maxTokens: 12000
+`,
+      "utf8"
+    );
+
+    const config = await loadLongguConfig(dir);
+
+    expect(config.provider).toBeUndefined();
+    expect(config.genre).toBe("玄幻");
+    expect(config.context!.maxTokens).toBe(12000);
   });
 });

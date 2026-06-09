@@ -39,15 +39,13 @@ The system SHALL retry with a fallback model when the routed primary generation 
 - **THEN** the run metadata records the fallback attempt count
 
 ### Requirement: Cost estimates in run metadata
-The system SHALL write token and cost estimates to run metadata for every model-backed task that creates a run record.
+The system SHALL write token and cost estimates to run metadata for every model-backed or host-imported task that creates a run record.
 
-#### Scenario: Successful run cost
-- **WHEN** a routed generation run succeeds
-- **THEN** metadata contains task, model profile, inputTokens, outputTokens, estimatedCost, durationMs, and fallbackAttempts
-
-#### Scenario: Non-drafting run cost
-- **WHEN** a model-backed planning, audit, revision, settlement, or experiment run succeeds
-- **THEN** metadata contains task, model profile, inputTokens, outputTokens, estimatedCost, durationMs, and fallbackAttempts
+#### Scenario: Host LLM import cost
+- **WHEN** a host-generated chapter draft is imported through `write chapter --input`
+- **THEN** metadata contains task, model profile, inputTokens, outputTokens, estimatedCost, and durationMs
+- **THEN** model profile is `host`
+- **THEN** estimated cost is `0`
 
 ### Requirement: Model list command
 The system SHALL provide `longgu model list` to inspect configured models and task routes.

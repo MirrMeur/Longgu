@@ -1,4 +1,4 @@
-import type { LongguConfig, ModelCost, ModelProfile } from "./config.js";
+import { requireProviderConfig, type LongguConfig, type ModelCost, type ModelProfile } from "./config.js";
 
 export const modelTasks = ["planning", "drafting", "audit", "revise", "settle", "experiment"] as const;
 
@@ -39,7 +39,7 @@ export function listModelProfiles(config: LongguConfig): ModelListEntry[] {
 
 export function getModelProfiles(config: LongguConfig): Record<string, ModelProfile> {
   return {
-    default: { provider: config.provider, cost: { inputPer1K: 0, outputPer1K: 0 } },
+    default: { provider: requireProviderConfig(config), cost: { inputPer1K: 0, outputPer1K: 0 } },
     ...(config.models ?? {})
   };
 }

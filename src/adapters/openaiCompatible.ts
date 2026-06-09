@@ -1,8 +1,8 @@
-import type { LongguConfig } from "../core/config.js";
+import type { ProviderBackedLongguConfig } from "../core/config.js";
 
 export interface GenerateRequest {
   prompt: string;
-  config: LongguConfig;
+  config: ProviderBackedLongguConfig;
   apiKey: string;
 }
 
@@ -10,7 +10,7 @@ export interface GenerateResult {
   text: string;
 }
 
-export async function checkOpenAICompatible(config: LongguConfig, apiKey: string): Promise<void> {
+export async function checkOpenAICompatible(config: ProviderBackedLongguConfig, apiKey: string): Promise<void> {
   const endpoint = new URL("chat/completions", ensureTrailingSlash(config.provider.baseUrl));
   const response = await fetch(endpoint, {
     method: "POST",

@@ -1,4 +1,4 @@
-import type { LongguConfig } from "./config.js";
+import type { LongguConfig, ProviderBackedLongguConfig } from "./config.js";
 import {
   estimateCost,
   estimateTokens,
@@ -10,7 +10,7 @@ import { createRunRecord, finishRunRecord, type RunAttemptMetadata, type RunMeta
 
 export type GenerateTextFn = (request: {
   prompt: string;
-  config: LongguConfig;
+  config: ProviderBackedLongguConfig;
   apiKey: string;
 }) => Promise<{ text: string }>;
 
@@ -127,7 +127,7 @@ async function generateWithProfiles(input: {
   const attempts: RunAttemptMetadata[] = [];
   let lastError = "";
   for (const profile of input.profiles) {
-    const routedConfig: LongguConfig = { ...input.config, provider: profile.profile.provider };
+    const routedConfig: ProviderBackedLongguConfig = { ...input.config, provider: profile.profile.provider };
     const apiKey = input.readApiKey ? input.readApiKey(profile.profile.provider.apiKeyEnv) : input.apiKey;
     if (!apiKey) {
       throw new Error(`API key check failed. Environment variable ${profile.profile.provider.apiKeyEnv} is not set.`);

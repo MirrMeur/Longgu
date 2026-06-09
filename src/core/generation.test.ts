@@ -1,10 +1,15 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createFixtureWorkspace, createPlanningStateFixture, createRoutingFixtureWorkspace } from "../test/testUtils.js";
+import {
+  createFixtureWorkspace,
+  createHostOnlyFixtureWorkspace,
+  createPlanningStateFixture,
+  createRoutingFixtureWorkspace
+} from "../test/testUtils.js";
 import { latestRun } from "./runs.js";
-import { writeChapter } from "./generation.js";
+import { exportHostChapterPrompt, importHostChapterDraft, writeChapter } from "./generation.js";
 
 describe("writeChapter", () => {
   it("writes a chapter and successful run record with a fake provider", async () => {
@@ -174,6 +179,47 @@ describe("writeChapter", () => {
     });
 
     await expect(readFile(path.join(dir, "chapters", "999.md"), "utf8")).resolves.toBe("# 模型标题\n\n未规划章节。");
+  });
+
+  it("exports a host LLM chapter prompt without provider config", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-host-prompt-"));
+    await createHostOnlyFixtureWorkspace(dir);
+
+    const result = await exportHostChapterPrompt({ workspaceDir: dir, chapterId: "001" });
+
+    expect(result.promptPath).toContain(path.join("host-prompts", "001.prompt.md"));
+    await expect(readFile(result.promptPath, "utf8")).resolves.toContain("请开始写第 001 章");
+    await expect(readFile(result.contextJsonPath, "utf8")).resolves.toContain("\"schemaVersion\": \"longgu.context-pack.v0.7\"");
+  });
+
+  it("imports a host LLM draft and records zero-cost host metadata", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-host-import-"));
+    await createPlanningStateFixture(dir);
+    await writeFile(
+      path.join(dir, "longgu.yaml"),
+      `title: 测试小说
+genre: 玄幻
+language: zh-CN
+context:
+  maxTokens: 16000
+`,
+      "utf8"
+    );
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+    await writeFile(path.join(dir, "drafts", "001.md"), "# 宿主标题\n\n陆沉从宿主模型正文入局。", "utf8");
+
+    const result = await importHostChapterDraft({
+      workspaceDir: dir,
+      chapterId: "001",
+      inputPath: "drafts/001.md"
+    });
+
+    await expect(readFile(result.chapterPath, "utf8")).resolves.toBe("# 第001章 第一章 入门\n\n陆沉从宿主模型正文入局。");
+    const run = await latestRun(dir);
+    expect(run?.metadata.provider).toBe("host-llm");
+    expect(run?.metadata.modelProfile).toBe("host");
+    expect(run?.metadata.estimatedCost).toBe(0);
+    expect(run?.metadata.outputFile).toBe("output.md");
   });
 
   it("persists a failed run record when fake provider fails", async () => {

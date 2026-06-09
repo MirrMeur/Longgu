@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import { checkOpenAICompatible, generateWithOpenAICompatible } from "../adapters/openaiCompatible.js";
 import { auditChapter } from "../core/audit.js";
 import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
-import { loadLongguConfig } from "../core/config.js";
+import { loadLongguConfig, requireProviderBackedConfig, requireProviderConfig } from "../core/config.js";
 import { buildChapterContext } from "../core/context.js";
 import {
   compareExperiment,
@@ -16,7 +16,7 @@ import {
   scoreExperimentVariant
 } from "../core/experiments.js";
 import { recordChapterFeedback } from "../core/feedback.js";
-import { writeChapter } from "../core/generation.js";
+import { exportHostChapterPrompt, importHostChapterDraft, writeChapter } from "../core/generation.js";
 import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
 import { listModelProfiles } from "../core/modelRouting.js";
 import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
@@ -59,8 +59,10 @@ program
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const config = await loadConfigWithFriendlyErrors(workspaceDir);
-      const apiKey = readApiKey(config.provider.apiKeyEnv);
-      await checkOpenAICompatible(config, apiKey);
+      const providerConfig = requireProviderBackedConfig(config);
+      const provider = requireProviderConfig(providerConfig);
+      const apiKey = readApiKey(provider.apiKeyEnv);
+      await checkOpenAICompatible(providerConfig, apiKey);
       console.log("Doctor passed: structure, config, API key, and provider connectivity are ready.");
       console.log("Next: run longgu plan book, or continue with an existing outline.");
     });
@@ -72,11 +74,38 @@ write
   .description("Generate a chapter")
   .requiredOption("--id <id>", "chapter id, e.g. 001")
   .option("--important", "use important drafting model route when configured")
+  .option("--host-prompt", "write a prompt for a host LLM instead of calling a provider")
+  .option("--input <path>", "import a host-generated Markdown chapter instead of calling a provider")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { id: string; important?: boolean }) => {
+  .action(async (dir: string, options: { id: string; important?: boolean; hostPrompt?: boolean; input?: string }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
+      if (options.hostPrompt && options.input) {
+        throw new Error("--host-prompt cannot be used with --input.");
+      }
+      if (options.hostPrompt) {
+        const result = await exportHostChapterPrompt({
+          workspaceDir,
+          chapterId: options.id
+        });
+        console.log(`Host prompt: ${result.promptPath}`);
+        console.log(`Context JSON: ${result.contextJsonPath}`);
+        console.log(`Context Markdown: ${result.contextMarkdownPath}`);
+        console.log(`Next: ask the host LLM to write the chapter, save it as Markdown, then run longgu write chapter --id ${options.id} --input <path>.`);
+        return;
+      }
+      if (options.input) {
+        const result = await importHostChapterDraft({
+          workspaceDir,
+          chapterId: options.id,
+          inputPath: options.input
+        });
+        console.log(`Imported chapter: ${result.chapterPath}`);
+        console.log(`Run record: ${result.runDir}`);
+        console.log(`Next: review chapters/${options.id}.md, then run longgu audit chapter --id ${options.id}.`);
+        return;
+      }
       const result = await writeChapter({
         workspaceDir,
         chapterId: options.id,

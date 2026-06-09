@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { LongguConfig } from "./config.js";
+import { requireProviderBackedConfig, type LongguConfig, type ProviderBackedLongguConfig } from "./config.js";
 import { runRoutedTextGeneration } from "./modelExecution.js";
 import { pathExists } from "./workspace.js";
 
@@ -206,7 +206,7 @@ export interface StateDeltaModelAttempt {
 
 export type GenerateStateDeltaFn = (request: {
   prompt: string;
-  config: LongguConfig;
+  config: ProviderBackedLongguConfig;
   apiKey: string;
 }) => Promise<{ text: string }>;
 
@@ -325,7 +325,7 @@ export async function settleChapterState(input: {
     chapterText,
     ledgers: before,
     deltaPath: input.deltaPath,
-    config: input.config,
+    config: input.deltaPath ? undefined : requireProviderBackedConfig(input.config),
     apiKey: input.apiKey,
     readApiKey: input.readApiKey,
     generate: input.generate
@@ -447,7 +447,7 @@ async function resolveSettlementDelta(input: {
   chapterText: string;
   ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>;
   deltaPath?: string;
-  config?: LongguConfig;
+  config?: ProviderBackedLongguConfig;
   apiKey?: string;
   readApiKey?: (envName: string) => string;
   generate?: GenerateStateDeltaFn;
@@ -455,7 +455,7 @@ async function resolveSettlementDelta(input: {
   source: "file" | "model";
   delta: StateDelta;
   deltaPath?: string;
-  config?: LongguConfig;
+  config?: ProviderBackedLongguConfig;
   prompt?: string;
   modelOutput?: string;
   modelAttempts?: StateDeltaModelAttempt[];
@@ -469,6 +469,7 @@ async function resolveSettlementDelta(input: {
     throw new Error("State delta extraction requires provider config and API key when --delta is not provided.");
   }
 
+  const providerConfig = requireProviderBackedConfig(input.config);
   let prompt = renderStateDeltaPrompt({
     chapterId: input.chapterId,
     chapterText: input.chapterText,
@@ -482,7 +483,7 @@ async function resolveSettlementDelta(input: {
       workspaceDir: input.workspaceDir,
       task: "settle",
       subjectId: input.chapterId,
-      config: input.config,
+      config: providerConfig,
       prompt,
       context: [{ file: `chapters/${input.chapterId}.md`, content: input.chapterText }],
       apiKey: input.apiKey,
@@ -496,7 +497,7 @@ async function resolveSettlementDelta(input: {
       return {
         source: "model",
         delta,
-        config: input.config,
+        config: providerConfig,
         prompt,
         modelOutput: result.text,
         modelAttempts: attempts

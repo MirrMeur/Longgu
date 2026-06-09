@@ -1,8 +1,8 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { LongguConfig } from "./config.js";
-import { loadLongguConfig } from "./config.js";
+import type { LongguConfig, ProviderBackedLongguConfig } from "./config.js";
+import { loadLongguConfig, requireProviderBackedConfig } from "./config.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { runRoutedTextGeneration } from "./modelExecution.js";
 import { stateLedgerFiles, loadStateLedger } from "./state.js";
@@ -82,7 +82,7 @@ export type ChapterAuditIssue = z.infer<typeof ChapterAuditIssueSchema>;
 
 export type GenerateChapterAuditFn = (request: {
   prompt: string;
-  config: LongguConfig;
+  config: ProviderBackedLongguConfig;
   apiKey: string;
 }) => Promise<{ text: string }>;
 
@@ -129,7 +129,7 @@ export async function auditChapter(input: {
     : await generateRawAudit({
         workspaceDir: input.workspaceDir,
         context,
-        config,
+        config: requireProviderBackedConfig(config),
         apiKey: input.apiKey,
         readApiKey: input.readApiKey,
         generate: input.generate
@@ -214,7 +214,7 @@ async function loadRawAudit(inputPath: string): Promise<RawAuditInput> {
 async function generateRawAudit(input: {
   workspaceDir: string;
   context: AuditContext;
-  config: LongguConfig;
+  config: ProviderBackedLongguConfig;
   apiKey?: string;
   readApiKey?: (envName: string) => string;
   generate?: GenerateChapterAuditFn;
