@@ -4,7 +4,13 @@ import { Command } from "commander";
 import { ZodError } from "zod";
 import { checkOpenAICompatible, generateWithOpenAICompatible } from "../adapters/openaiCompatible.js";
 import { auditChapter } from "../core/audit.js";
-import { auditChapterPlan, createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
+import {
+  auditChapterPlan,
+  auditVolumePlan,
+  createBookPlanDraft,
+  createChaptersPlanDraft,
+  createVolumePlanDraft
+} from "../core/bookPlan.js";
 import { loadLongguConfig, requireProviderBackedConfig, requireProviderConfig } from "../core/config.js";
 import { buildChapterContext } from "../core/context.js";
 import {
@@ -573,6 +579,31 @@ settle
   });
 
 const audit = program.command("audit").description("Audit Longgu artifacts");
+audit
+  .command("volume-plan")
+  .description("Audit a V0.2 volume plan draft before chapter planning")
+  .requiredOption("--id <id>", "volume id, e.g. 001")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await auditVolumePlan({
+        workspaceDir,
+        volumeId: options.id
+      });
+      const criticalCount = result.audit.issues.filter((issue) => issue.severity === "critical").length;
+      const warningCount = result.audit.issues.filter((issue) => issue.severity === "warning").length;
+      console.log(`Volume plan audit JSON: ${result.jsonPath}`);
+      console.log(`Volume plan audit Markdown: ${result.markdownPath}`);
+      console.log(`Status: ${result.audit.status}`);
+      console.log(`Blocked: ${result.audit.blocked}`);
+      console.log(`Critical: ${criticalCount}`);
+      console.log(`Warning: ${warningCount}`);
+      console.log(`Next: review ${path.relative(workspaceDir, result.markdownPath)}, then edit outlines/volume-${options.id}.draft.json or run longgu plan chapters.`);
+    });
+  });
+
 audit
   .command("chapter-plan")
   .description("Audit a V0.2 chapter plan draft before drafting")

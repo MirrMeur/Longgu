@@ -80,7 +80,35 @@ describe("longgu plan CLI", () => {
   });
 });
 
-describe("longgu chapter plan audit CLI", () => {
+describe("longgu plan audit CLI", () => {
+  it("audits a generated volume plan draft", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-audit-volume-plan-"));
+    await createFixtureWorkspace(dir);
+
+    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "book", dir], {
+      cwd: path.resolve(".")
+    });
+    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "volume", "--id", "001", dir], {
+      cwd: path.resolve(".")
+    });
+
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "audit", "volume-plan", "--id", "001", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(result.stdout).toContain("Volume plan audit JSON:");
+    expect(result.stdout).toContain("Status: needs-revision");
+    expect(result.stdout).toContain("Warning:");
+    await expect(readFile(path.join(dir, "audits", "volume-001.plan-audit.json"), "utf8")).resolves.toContain(
+      "\"schemaVersion\": \"longgu.volume-plan-audit.v0.2\""
+    );
+    await expect(readFile(path.join(dir, "audits", "volume-001.plan-audit.md"), "utf8")).resolves.toContain(
+      "Volume Plan Audit 001"
+    );
+  });
+
   it("audits a generated chapter plan draft", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-audit-chapter-plan-"));
     await createFixtureWorkspace(dir);

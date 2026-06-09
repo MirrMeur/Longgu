@@ -7,8 +7,10 @@ import {
   BookPlanDraftSchema,
   ChapterPlanAuditSchema,
   ChaptersPlanDraftSchema,
+  VolumePlanAuditSchema,
   VolumePlanDraftSchema,
   auditChapterPlan,
+  auditVolumePlan,
   createBookPlanDraft,
   createChaptersPlanDraft,
   createVolumePlanDraft,
@@ -310,6 +312,130 @@ describe("createChaptersPlanDraft", () => {
 
     await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "../001" })).rejects.toThrow(
       "Plan id must contain"
+    );
+  });
+});
+
+describe("auditVolumePlan", () => {
+  it("passes a ready volume plan and writes audit artifacts", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-volume-plan-pass-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    const planResult = await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const readyPlan = {
+      ...planResult.draft,
+      volumeGoal: "陆沉在外门三次公开测试中夺回灵石配额，并查出执事扣资源的账册证据。",
+      primaryAntagonist: "外门执事赵执掌握配额账册，用排名和任务分配压制陆沉。",
+      conflictEscalation: [
+        {
+          step: "入门压迫",
+          pressure: "赵执公开降低陆沉测试资源，要求他三日内补齐欠账。",
+          expectedPayoff: "陆沉用黑纹灵根完成第一次反向验石，拿回最低配额。"
+        },
+        {
+          step: "任务夺粮",
+          pressure: "赵执派高阶弟子抢走任务凭证，逼陆沉在公开榜前失格。",
+          expectedPayoff: "陆沉借任务规则反制，夺回凭证并让旁观弟子记住他的异常。"
+        },
+        {
+          step: "账册翻盘",
+          pressure: "赵执把账册转移给内门靠山，要求陆沉背下私吞罪名。",
+          expectedPayoff: "陆沉公开账册证据，完成身份逆转，但暴露黑纹会吞灵石的代价。"
+        }
+      ],
+      keyPayoffs: ["公开测试翻盘", "夺回灵石配额", "揭出账册证据"],
+      endingHook: "内门靠山认出黑纹来源，要求陆沉参加更危险的秘境名额争夺。"
+    };
+    await writeFile(planResult.outputPath, `${JSON.stringify(readyPlan, null, 2)}\n`, "utf8");
+
+    const result = await auditVolumePlan({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-10T01:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("passed");
+    expect(result.audit.blocked).toBe(false);
+    expect(result.audit.issues).toEqual([]);
+    expect(VolumePlanAuditSchema.parse(JSON.parse(await readFile(result.jsonPath, "utf8")) as unknown).schemaVersion).toBe(
+      "longgu.volume-plan-audit.v0.2"
+    );
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("Volume Plan Audit 001");
+  });
+
+  it("flags weak volume promise fields, payoffs, and repeated escalation", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-volume-plan-warn-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    const planResult = await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const weakPlan = {
+      ...planResult.draft,
+      volumeGoal: "变强",
+      primaryAntagonist: "敌人出现",
+      conflictEscalation: [
+        { step: "opening", pressure: "赵执公开扣掉陆沉灵石配额。", expectedPayoff: "陆沉夺回第一袋灵石。" },
+        { step: "middle", pressure: "赵执公开扣掉陆沉灵石配额。", expectedPayoff: "陆沉夺回第一袋灵石。" },
+        { step: "climax", pressure: "反派施压", expectedPayoff: "爽点" }
+      ],
+      keyPayoffs: ["爽点"],
+      endingHook: "留下悬念"
+    };
+    await writeFile(planResult.outputPath, `${JSON.stringify(weakPlan, null, 2)}\n`, "utf8");
+
+    const result = await auditVolumePlan({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-10T01:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("needs-revision");
+    expect(result.audit.blocked).toBe(false);
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("volumeGoal-weak");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("primaryAntagonist-weak");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("conflictEscalation-2-pressure-repeated");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("conflictEscalation-2-expectedPayoff-repeated");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("keyPayoffs-1-weak");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("endingHook-weak");
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("Volume Plan Audit 001");
+  });
+
+  it("blocks structurally invalid volume plans", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-volume-plan-block-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    const planResult = await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    await writeFile(
+      planResult.outputPath,
+      `${JSON.stringify({ ...planResult.draft, conflictEscalation: [], chapterSeedCount: 0 }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const result = await auditVolumePlan({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-10T01:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("blocked");
+    expect(result.audit.blocked).toBe(true);
+    expect(result.audit.issues.find((issue) => issue.id === "conflictEscalation-too-short")).toMatchObject({
+      id: "conflictEscalation-too-short",
+      severity: "critical",
+      field: "conflictEscalation"
+    });
+    expect(result.audit.issues.find((issue) => issue.id === "chapterSeedCount-non-positive")).toMatchObject({
+      id: "chapterSeedCount-non-positive",
+      severity: "critical",
+      field: "chapterSeedCount"
+    });
+  });
+
+  it("requires a volume plan before auditing", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-volume-plan-missing-"));
+    await createFixtureWorkspace(dir);
+
+    await expect(auditVolumePlan({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow(
+      "Volume plan draft is required before audit"
     );
   });
 });

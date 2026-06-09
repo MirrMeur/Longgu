@@ -123,6 +123,43 @@ export const ChaptersPlanDraftSchema = z.object({
 
 export type ChaptersPlanDraft = z.infer<typeof ChaptersPlanDraftSchema>;
 
+const VolumePlanAuditSeveritySchema = z.enum(["critical", "warning", "info"]);
+const VolumePlanAuditStatusSchema = z.enum(["passed", "needs-revision", "blocked"]);
+const VolumePlanAuditFieldSchema = z.enum([
+  "volumeGoal",
+  "primaryAntagonist",
+  "conflictEscalation",
+  "step",
+  "pressure",
+  "expectedPayoff",
+  "keyPayoffs",
+  "endingHook",
+  "chapterSeedCount"
+]);
+
+export const VolumePlanAuditIssueSchema = z.object({
+  id: z.string().min(1),
+  severity: VolumePlanAuditSeveritySchema,
+  field: VolumePlanAuditFieldSchema,
+  step: z.string().min(1).optional(),
+  reason: z.string().min(1),
+  fix: z.string().min(1)
+});
+
+export const VolumePlanAuditSchema = z.object({
+  schemaVersion: z.literal("longgu.volume-plan-audit.v0.2"),
+  volumeId: z.string().min(1),
+  status: VolumePlanAuditStatusSchema,
+  blocked: z.boolean(),
+  summary: z.string().min(1),
+  issues: z.array(VolumePlanAuditIssueSchema),
+  sourceFiles: z.array(z.string().min(1)),
+  generatedAt: z.string().datetime()
+});
+
+export type VolumePlanAudit = z.infer<typeof VolumePlanAuditSchema>;
+export type VolumePlanAuditIssue = z.infer<typeof VolumePlanAuditIssueSchema>;
+
 const ChapterPlanAuditSeveritySchema = z.enum(["critical", "warning", "info"]);
 const ChapterPlanAuditStatusSchema = z.enum(["passed", "needs-revision", "blocked"]);
 const ChapterPlanAuditFieldSchema = z.enum([
@@ -156,6 +193,12 @@ export const ChapterPlanAuditSchema = z.object({
 
 export type ChapterPlanAudit = z.infer<typeof ChapterPlanAuditSchema>;
 export type ChapterPlanAuditIssue = z.infer<typeof ChapterPlanAuditIssueSchema>;
+
+const VolumePlanAuditInputSchema = VolumePlanDraftSchema.extend({
+  chapterSeedCount: z.number().int()
+});
+
+type VolumePlanAuditInput = z.infer<typeof VolumePlanAuditInputSchema>;
 
 export async function createBookPlanDraft(input: {
   workspaceDir: string;
@@ -274,6 +317,45 @@ export async function auditChapterPlan(input: {
   const markdownPath = path.join(outputDir, `chapters-${volumeId}.plan-audit.md`);
   await writeFile(jsonPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, renderChapterPlanAuditMarkdown(audit), "utf8");
+  return { audit, jsonPath, markdownPath };
+}
+
+export async function auditVolumePlan(input: {
+  workspaceDir: string;
+  volumeId: string;
+  now?: Date;
+}): Promise<{ audit: VolumePlanAudit; jsonPath: string; markdownPath: string }> {
+  const volumeId = normalizePlanId(input.volumeId);
+  const planSource = `outlines/volume-${volumeId}.draft.json`;
+  const planPath = path.join(input.workspaceDir, planSource);
+  if (!(await pathExists(planPath))) {
+    throw new Error(`Volume plan draft is required before audit: ${planSource}`);
+  }
+
+  const plan = await loadVolumePlanAuditInput(planPath);
+  const issues = collectVolumePlanIssues(plan);
+  const hasCritical = issues.some((issue) => issue.severity === "critical");
+  const hasWarning = issues.some((issue) => issue.severity === "warning");
+  const audit = VolumePlanAuditSchema.parse({
+    schemaVersion: "longgu.volume-plan-audit.v0.2",
+    volumeId,
+    status: hasCritical ? "blocked" : hasWarning ? "needs-revision" : "passed",
+    blocked: hasCritical,
+    summary:
+      issues.length === 0
+        ? `Volume ${volumeId} plan is ready for chapter planning.`
+        : `Volume ${volumeId} plan has ${issues.length} readiness issue(s).`,
+    issues,
+    sourceFiles: [planSource],
+    generatedAt: (input.now ?? new Date()).toISOString()
+  });
+
+  const outputDir = path.join(input.workspaceDir, "audits");
+  await mkdir(outputDir, { recursive: true });
+  const jsonPath = path.join(outputDir, `volume-${volumeId}.plan-audit.json`);
+  const markdownPath = path.join(outputDir, `volume-${volumeId}.plan-audit.md`);
+  await writeFile(jsonPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  await writeFile(markdownPath, renderVolumePlanAuditMarkdown(audit), "utf8");
   return { audit, jsonPath, markdownPath };
 }
 
@@ -579,6 +661,148 @@ function collectChapterPlanIssues(plan: ChaptersPlanDraft): ChapterPlanAuditIssu
   return issues.sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function collectVolumePlanIssues(plan: VolumePlanAuditInput): VolumePlanAuditIssue[] {
+  const issues: VolumePlanAuditIssue[] = [];
+
+  for (const field of volumeReadinessFields) {
+    const value = plan[field];
+    if (isWeakPlanField(value)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `${field}-weak`,
+          severity: "warning",
+          field,
+          reason: `${field} is missing, placeholder-like, or too generic to define a visible volume promise.`,
+          fix: `Rewrite ${field} with a concrete target, opponent pressure, public consequence, or next-volume question.`
+        })
+      );
+    }
+  }
+
+  if (plan.conflictEscalation.length < 3) {
+    issues.push(
+      VolumePlanAuditIssueSchema.parse({
+        id: "conflictEscalation-too-short",
+        severity: "critical",
+        field: "conflictEscalation",
+        reason: `Volume plan has ${plan.conflictEscalation.length} conflict escalation step(s), but at least 3 are required for entry, complication, and climax pressure.`,
+        fix: "Add at least three escalation steps with distinct pressure and expected payoff."
+      })
+    );
+  }
+
+  if (plan.chapterSeedCount <= 0) {
+    issues.push(
+      VolumePlanAuditIssueSchema.parse({
+        id: "chapterSeedCount-non-positive",
+        severity: "critical",
+        field: "chapterSeedCount",
+        reason: `chapterSeedCount must be positive before chapter planning, but received ${plan.chapterSeedCount}.`,
+        fix: "Set chapterSeedCount to the intended positive chapter count for this volume."
+      })
+    );
+  }
+
+  if (plan.keyPayoffs.length === 0) {
+    issues.push(
+      VolumePlanAuditIssueSchema.parse({
+        id: "keyPayoffs-empty",
+        severity: "warning",
+        field: "keyPayoffs",
+        reason: "Volume plan has no key payoff, so chapter planning cannot distribute visible reader rewards.",
+        fix: "Add at least one concrete key payoff such as a status shift, resource reversal, public win, reveal, or costly breakthrough."
+      })
+    );
+  }
+
+  plan.keyPayoffs.forEach((payoff, index) => {
+    if (isWeakPlanField(payoff)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `keyPayoffs-${index + 1}-weak`,
+          severity: "warning",
+          field: "keyPayoffs",
+          step: String(index + 1),
+          reason: "A key payoff is missing, placeholder-like, or too generic to anchor reader reward.",
+          fix: "Rewrite the payoff as a visible status, resource, relationship, information, or threat change."
+        })
+      );
+    }
+  });
+
+  plan.conflictEscalation.forEach((stage, index) => {
+    const stepLabel = stage.step || String(index + 1);
+    if (isWeakPlanLabel(stage.step)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `conflictEscalation-${index + 1}-step-weak`,
+          severity: "warning",
+          field: "step",
+          step: stepLabel,
+          reason: "Escalation step is missing or placeholder-like.",
+          fix: "Name the story movement, such as entry pressure, midpoint complication, false win, climax, or aftershock."
+        })
+      );
+    }
+    if (isWeakPlanField(stage.pressure)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `conflictEscalation-${index + 1}-pressure-weak`,
+          severity: "warning",
+          field: "pressure",
+          step: stepLabel,
+          reason: "Escalation pressure is missing, placeholder-like, or too generic to force protagonist action.",
+          fix: "Rewrite pressure with a concrete antagonist move, deadline, public judgment, resource loss, or personal cost."
+        })
+      );
+    }
+    if (isWeakPlanField(stage.expectedPayoff)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `conflictEscalation-${index + 1}-expectedPayoff-weak`,
+          severity: "warning",
+          field: "expectedPayoff",
+          step: stepLabel,
+          reason: "Escalation payoff is missing, placeholder-like, or too generic to promise reader reward.",
+          fix: "Rewrite payoff as a visible win, loss with information, status shift, resource change, reveal, or sharper hook."
+        })
+      );
+    }
+  });
+
+  for (let index = 1; index < plan.conflictEscalation.length; index += 1) {
+    const previous = plan.conflictEscalation[index - 1];
+    const current = plan.conflictEscalation[index];
+    if (normalizePlanText(previous.pressure) === normalizePlanText(current.pressure)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `conflictEscalation-${index + 1}-pressure-repeated`,
+          severity: "warning",
+          field: "pressure",
+          step: current.step || String(index + 1),
+          reason: "Escalation pressure repeats the previous step, so the volume does not climb.",
+          fix: "Vary the pressure by changing enemy intelligence, public visibility, resource scarcity, time limit, personal stake, or cost."
+        })
+      );
+    }
+    if (normalizePlanText(previous.expectedPayoff) === normalizePlanText(current.expectedPayoff)) {
+      issues.push(
+        VolumePlanAuditIssueSchema.parse({
+          id: `conflictEscalation-${index + 1}-expectedPayoff-repeated`,
+          severity: "warning",
+          field: "expectedPayoff",
+          step: current.step || String(index + 1),
+          reason: "Escalation payoff repeats the previous step, weakening payoff rhythm.",
+          fix: "Vary the payoff by changing status, resource, information, relationship, or future threat."
+        })
+      );
+    }
+  }
+
+  return issues.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+const volumeReadinessFields = ["volumeGoal", "primaryAntagonist", "endingHook"] as const;
 const chapterReadinessFields = ["goal", "conflict", "payoff", "informationGain", "endingHook"] as const;
 const repeatedChapterFields = ["goal", "payoff", "endingHook"] as const;
 
@@ -598,10 +822,23 @@ const placeholderPatterns = [
   "发生冲突",
   "制造阻力",
   "留下悬念",
-  "获得进展"
+  "获得进展",
+  "变强",
+  "成长",
+  "探索世界",
+  "埋伏笔",
+  "敌人出现",
+  "主角获胜",
+  "爽点",
+  "反派施压",
+  "升级"
 ];
 
 function isWeakChapterPlanField(value: string): boolean {
+  return isWeakPlanField(value);
+}
+
+function isWeakPlanField(value: string): boolean {
   const normalized = normalizePlanText(value);
   if (normalized.length < 6) {
     return true;
@@ -609,8 +846,38 @@ function isWeakChapterPlanField(value: string): boolean {
   return placeholderPatterns.some((pattern) => normalized.includes(normalizePlanText(pattern)));
 }
 
+function isWeakPlanLabel(value: string): boolean {
+  const normalized = normalizePlanText(value);
+  if (normalized.length < 2) {
+    return true;
+  }
+  return placeholderPatterns.some((pattern) => normalized.includes(normalizePlanText(pattern)));
+}
+
 function normalizePlanText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function renderVolumePlanAuditMarkdown(audit: VolumePlanAudit): string {
+  const issues = audit.issues.length
+    ? audit.issues
+        .map(
+          (issue) =>
+            `- [${issue.severity}] ${issue.id}${issue.step ? ` (${issue.step}/${issue.field})` : ` (${issue.field})`}\n  - Reason: ${issue.reason}\n  - Fix: ${issue.fix}`
+        )
+        .join("\n")
+    : "- No issues.";
+  return `# Volume Plan Audit ${audit.volumeId}
+
+- Status: ${audit.status}
+- Blocked: ${audit.blocked}
+- Summary: ${audit.summary}
+- Source files: ${audit.sourceFiles.join(", ")}
+
+## Issues
+
+${issues}
+`;
 }
 
 function renderChapterPlanAuditMarkdown(audit: ChapterPlanAudit): string {
@@ -651,6 +918,11 @@ export async function loadBookPlanDraft(filePath: string): Promise<BookPlanDraft
 export async function loadVolumePlanDraft(filePath: string): Promise<VolumePlanDraft> {
   const raw = await readFile(filePath, "utf8");
   return VolumePlanDraftSchema.parse(JSON.parse(raw) as unknown);
+}
+
+async function loadVolumePlanAuditInput(filePath: string): Promise<VolumePlanAuditInput> {
+  const raw = await readFile(filePath, "utf8");
+  return VolumePlanAuditInputSchema.parse(JSON.parse(raw) as unknown);
 }
 
 export async function loadChaptersPlanDraft(filePath: string): Promise<ChaptersPlanDraft> {
