@@ -71,7 +71,7 @@ export async function initWorkspace(workspaceDir: string): Promise<{ created: st
   const created: string[] = [];
   const existing: string[] = [];
 
-  for (const dir of ["bible", "outlines", "chapters", "runs"]) {
+  for (const dir of ["bible", "outlines", "state", "chapters", "runs"]) {
     const dirPath = path.join(workspaceDir, dir);
     if (await pathExists(dirPath)) {
       existing.push(dir);
@@ -97,7 +97,7 @@ export async function initWorkspace(workspaceDir: string): Promise<{ created: st
 
 export async function assertWorkspaceShape(workspaceDir: string): Promise<string[]> {
   const missing: string[] = [];
-  for (const relativePath of ["longgu.yaml", "bible", "outlines", "chapters", "runs"]) {
+  for (const relativePath of ["longgu.yaml", "bible", "outlines", "state", "chapters", "runs"]) {
     if (!(await pathExists(path.join(workspaceDir, relativePath)))) {
       missing.push(relativePath);
     }

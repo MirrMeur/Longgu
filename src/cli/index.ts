@@ -7,6 +7,7 @@ import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } f
 import { loadLongguConfig } from "../core/config.js";
 import { writeChapter } from "../core/generation.js";
 import { latestRun } from "../core/runs.js";
+import { initStateLedgers } from "../core/state.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
 
 const program = new Command();
@@ -14,7 +15,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.2.2");
+  .version("0.3.0");
 
 program
   .command("init")
@@ -153,6 +154,27 @@ run
       console.log(`Prompt: ${metadata.promptFile}`);
       console.log(`Output: ${metadata.outputFile ?? "n/a"}`);
       console.log(`Error: ${metadata.errorFile ?? "n/a"}`);
+    });
+  });
+
+const state = program.command("state").description("Manage Longgu story state ledgers");
+state
+  .command("init")
+  .description("Initialize V0.3 story state ledgers")
+  .option("--force", "replace existing state ledger files")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { force?: boolean }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await initStateLedgers({ workspaceDir, force: options.force });
+      console.log(`State ledgers: ${result.outputDir}`);
+      if (result.created.length > 0) {
+        console.log(`Created: ${result.created.join(", ")}`);
+      }
+      if (result.overwritten.length > 0) {
+        console.log(`Overwritten: ${result.overwritten.join(", ")}`);
+      }
     });
   });
 

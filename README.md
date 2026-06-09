@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-项目处于 V0.2 阶段：已具备最小 CLI Harness，并开始落地小说规格与规划流程。
+项目处于 V0.3 阶段：已具备最小 CLI Harness、小说规格与规划流程，并开始落地长篇状态账本。
 
 已具备：
 
@@ -16,11 +16,13 @@
 - `longgu plan book`：从当前配置和 `bible/` 输入生成开书规格草稿。
 - `longgu plan volume --id 001`：从开书规格草稿生成分卷规划草稿。
 - `longgu plan chapters --volume 001`：从分卷规划草稿生成章节卡草稿。
+- `longgu state init`：初始化长篇一致性状态账本。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
 - 成功/失败 run record 落盘。
 - 规划目录：`outlines/`，当前输出 `outlines/book.draft.json`、`outlines/volume-<id>.draft.json` 与 `outlines/chapters-<volume>.draft.json`。
+- 状态目录：`state/`，当前输出 `truth.json`、`characters.json`、`timeline.json`、`hooks.json`、`reader-promises.json` 与 `resources.json`。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖
@@ -82,6 +84,7 @@ proposal -> specs -> design -> tasks -> implementation -> validation -> archive
 
 - `openspec/specs/minimal-cli-harness/spec.md`
 - `openspec/specs/book-planning/spec.md`
+- `openspec/specs/story-state/spec.md`
 
 ## 品牌与包名
 

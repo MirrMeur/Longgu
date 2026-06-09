@@ -40,3 +40,20 @@ describe("longgu plan CLI", () => {
     );
   });
 });
+
+describe("longgu state CLI", () => {
+  it("initializes baseline state ledgers", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-state-init-"));
+    await createFixtureWorkspace(dir);
+
+    const result = await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "state", "init", dir], {
+      cwd: path.resolve(".")
+    });
+
+    expect(result.stdout).toContain("State ledgers:");
+    expect(result.stdout).toContain("state/truth.json");
+    await expect(readFile(path.join(dir, "state", "truth.json"), "utf8")).resolves.toContain(
+      "\"schemaVersion\": \"longgu.story-state.v0.3\""
+    );
+  });
+});

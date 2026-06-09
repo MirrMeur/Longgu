@@ -12,6 +12,7 @@ describe("workspace", () => {
 
     expect(result.created).toContain("longgu.yaml");
     expect(result.created).toContain("outlines");
+    expect(result.created).toContain("state");
     expect(await assertWorkspaceShape(dir)).toEqual([]);
     await expect(readFile(path.join(dir, "bible", "premise.md"), "utf8")).resolves.toContain("Premise");
   });
@@ -23,6 +24,7 @@ describe("workspace", () => {
     const result = await initWorkspace(dir);
 
     expect(result.existing).toContain("longgu.yaml");
+    expect(result.existing).toContain("state");
     expect(result.existing).toContain("bible/premise.md");
   });
 });

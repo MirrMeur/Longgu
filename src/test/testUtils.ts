@@ -4,6 +4,7 @@ import path from "node:path";
 export async function createFixtureWorkspace(root: string): Promise<void> {
   await mkdir(path.join(root, "bible"), { recursive: true });
   await mkdir(path.join(root, "outlines"), { recursive: true });
+  await mkdir(path.join(root, "state"), { recursive: true });
   await mkdir(path.join(root, "chapters"), { recursive: true });
   await mkdir(path.join(root, "runs"), { recursive: true });
   await writeFile(
