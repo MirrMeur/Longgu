@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-项目处于 V0.6 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环，并内置中文网文类型卡 registry。
+项目处于 V0.7 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry，并能为单章生成可审查的上下文包。
 
 已具备：
 
@@ -26,6 +26,8 @@
 - `longgu revise chapter --id 001 --input revisions/001.candidate.md`：使用人工或外部工具产出的修订稿执行确定性修订落盘。
 - `longgu genre list`：列出内置 V0.6 类型卡。
 - `longgu genre show 玄幻`：查看匹配后的类型卡 JSON。
+- `longgu context build --chapter 001`：为目标章节生成可审查上下文包。
+- `longgu context build --chapter 001 --max-tokens 4000`：按估算 token 预算构建上下文，低优先级来源会先被裁剪，关键状态仍保留。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
@@ -39,6 +41,8 @@
 - 修订目录：`revisions/<chapter-id>/<timestamp>/`，当前输出 `before.md`、`after.md`、`diff.md`、`metadata.json`、`prompt.md`、`model-output.md`。
 - 修订模式支持 `spot-fix`、`polish`、`rewrite-scene`、`rewrite-chapter`，默认根据审计严重级别选择模式。
 - 类型卡：内置 `xuanhuan`、`xianxia`、`urban`、`urban-system`、`historical`、`sci-fi`、`game-system`、`supernatural-mystery`，支持中文 alias 解析并注入审计/修订 prompt。
+- 上下文目录：`context/`，当前输出 `context/<chapter-id>.context.json` 与 `context/<chapter-id>.context.md`。
+- 上下文包来源包括当前章节卡、分卷规划、状态账本、近期章节摘要、类型卡和 `bible/style.md`；预算不足时优先裁剪低优先级来源，`critical` 状态和章节卡不会被裁剪。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖
@@ -104,6 +108,7 @@ proposal -> specs -> design -> tasks -> implementation -> validation -> archive
 - `openspec/specs/chapter-audit/spec.md`
 - `openspec/specs/chapter-revision/spec.md`
 - `openspec/specs/genre-cards/spec.md`
+- `openspec/specs/context-builder/spec.md`
 
 ## 品牌与包名
 

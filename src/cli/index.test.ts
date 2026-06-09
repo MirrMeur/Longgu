@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { createFixtureWorkspace } from "../test/testUtils.js";
+import { createFixtureWorkspace, createPlanningStateFixture } from "../test/testUtils.js";
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve("src", "cli", "index.ts");
@@ -53,6 +53,27 @@ describe("longgu genre CLI", () => {
       cwd: path.resolve(".")
     });
     expect(JSON.parse(showResult.stdout)).toMatchObject({ id: "xuanhuan", name: "玄幻" });
+  });
+});
+
+describe("longgu context CLI", () => {
+  it("builds a chapter context pack", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-context-"));
+    await createPlanningStateFixture(dir);
+
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "context", "build", "--chapter", "001", "--max-tokens", "200", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(result.stdout).toContain("Context JSON:");
+    expect(result.stdout).toContain("Context Markdown:");
+    expect(result.stdout).toContain("Included sections:");
+    await expect(readFile(path.join(dir, "context", "001.context.json"), "utf8")).resolves.toContain(
+      "\"schemaVersion\": \"longgu.context-pack.v0.7\""
+    );
+    await expect(readFile(path.join(dir, "context", "001.context.md"), "utf8")).resolves.toContain("Context Pack 001");
   });
 });
 

@@ -1,0 +1,58 @@
+# context-builder Specification
+
+## Purpose
+TBD - created by archiving change v0-7-context-builder. Update Purpose after archive.
+## Requirements
+### Requirement: Context build command
+The system SHALL provide `longgu context build --chapter <id>` to build a reviewable context pack for a chapter.
+
+#### Scenario: Build chapter context
+- **WHEN** a user runs `longgu context build --chapter 001`
+- **THEN** the system writes `context/001.context.json`
+- **THEN** the system writes `context/001.context.md`
+
+### Requirement: Context pack schema
+The system SHALL validate context packs against a V0.7 schema.
+
+#### Scenario: Context pack shape
+- **WHEN** a context pack is written
+- **THEN** it contains `schemaVersion`, `chapterId`, `tokenBudget`, `estimatedTokens`, `sections`, `includedSectionCount`, and `generatedAt`
+- **THEN** `schemaVersion` is `longgu.context-pack.v0.7`
+
+#### Scenario: Context section shape
+- **WHEN** a context section is written
+- **THEN** it contains `id`, `source`, `reason`, `priority`, `estimatedTokens`, `included`, and `content`
+
+### Requirement: Context sources
+The system SHALL include available local context sources relevant to the target chapter.
+
+#### Scenario: Source selection
+- **WHEN** matching chapter plan, volume plan, state ledgers, genre card, style constraints, or chapter summaries exist
+- **THEN** the context builder considers those sources for the context pack
+
+### Requirement: Explainable context
+The system SHALL explain why each context section was selected.
+
+#### Scenario: Section reasons
+- **WHEN** a section is included or excluded
+- **THEN** the section contains a human-readable `reason`
+
+### Requirement: Token budget trimming
+The system SHALL trim context sections when estimated tokens exceed the requested budget.
+
+#### Scenario: Budget exceeded
+- **WHEN** estimated tokens exceed `--max-tokens`
+- **THEN** the system excludes lower-priority sections first
+- **THEN** the command still succeeds
+
+#### Scenario: Critical context protected
+- **WHEN** a critical state section or current chapter card is present
+- **THEN** it remains included even when the pack exceeds the token budget
+
+### Requirement: Context Markdown projection
+The system SHALL create a readable Markdown projection of included context sections.
+
+#### Scenario: Markdown context
+- **WHEN** a context pack is built
+- **THEN** `context/<chapter-id>.context.md` contains included section headings, source paths, reasons, and content
+

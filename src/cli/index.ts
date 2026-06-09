@@ -6,6 +6,7 @@ import { checkOpenAICompatible, generateWithOpenAICompatible } from "../adapters
 import { auditChapter } from "../core/audit.js";
 import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
 import { loadLongguConfig } from "../core/config.js";
+import { buildChapterContext } from "../core/context.js";
 import { writeChapter } from "../core/generation.js";
 import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
 import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
@@ -18,7 +19,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.6.0");
+  .version("0.7.0");
 
 program
   .command("init")
@@ -148,6 +149,29 @@ genre
   .argument("<id>", "genre id or alias")
   .action((id: string) => {
     console.log(JSON.stringify(resolveGenreCard(id), null, 2));
+  });
+
+const context = program.command("context").description("Build Longgu review context packs");
+context
+  .command("build")
+  .description("Build a V0.7 context pack for a chapter")
+  .requiredOption("--chapter <id>", "chapter id, e.g. 001")
+  .option("--max-tokens <number>", "estimated token budget", parsePositiveInteger)
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { chapter: string; maxTokens?: number }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await buildChapterContext({
+        workspaceDir,
+        chapterId: options.chapter,
+        maxTokens: options.maxTokens
+      });
+      console.log(`Context JSON: ${result.jsonPath}`);
+      console.log(`Context Markdown: ${result.markdownPath}`);
+      console.log(`Included sections: ${result.pack.includedSectionCount}/${result.pack.sections.length}`);
+      console.log(`Estimated tokens: ${result.pack.estimatedTokens}/${result.pack.tokenBudget}`);
+    });
   });
 
 const run = program.command("run").description("Inspect generation runs");
@@ -348,4 +372,12 @@ function readApiKey(envName: string): string {
     throw new Error(`API key check failed. Environment variable ${envName} is not set.`);
   }
   return value;
+}
+
+function parsePositiveInteger(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("--max-tokens must be a positive integer.");
+  }
+  return parsed;
 }
