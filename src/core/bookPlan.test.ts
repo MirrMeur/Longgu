@@ -5,10 +5,13 @@ import { describe, expect, it } from "vitest";
 import { createFixtureWorkspace } from "../test/testUtils.js";
 import {
   BookPlanDraftSchema,
+  ChaptersPlanDraftSchema,
   VolumePlanDraftSchema,
   createBookPlanDraft,
+  createChaptersPlanDraft,
   createVolumePlanDraft,
   loadBookPlanDraft,
+  loadChaptersPlanDraft,
   loadVolumePlanDraft
 } from "./bookPlan.js";
 
@@ -150,6 +153,102 @@ describe("createVolumePlanDraft", () => {
     await createBookPlanDraft({ workspaceDir: dir });
 
     await expect(createVolumePlanDraft({ workspaceDir: dir, volumeId: "../001" })).rejects.toThrow(
+      "Plan id must contain"
+    );
+  });
+});
+
+describe("createChaptersPlanDraft", () => {
+  it("creates validated chapter cards from the volume draft", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T01:00:00.000Z")
+    });
+    await createVolumePlanDraft({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-09T03:00:00.000Z")
+    });
+
+    const result = await createChaptersPlanDraft({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-09T05:00:00.000Z")
+    });
+
+    expect(result.outputPath).toBe(path.join(dir, "outlines", "chapters-001.draft.json"));
+    expect(result.overwritten).toBe(false);
+    expect(result.draft.schemaVersion).toBe("longgu.chapters-plan-draft.v0.2");
+    expect(result.draft.status).toBe("draft");
+    expect(result.draft.volumeId).toBe("001");
+    expect(result.draft.genre).toBe("玄幻");
+    expect(result.draft.volumePlanSource).toBe("outlines/volume-001.draft.json");
+    expect(result.draft.chapterCount).toBe(12);
+    expect(result.draft.chapters).toHaveLength(12);
+    expect(result.draft.chapters[0]).toEqual({
+      chapterId: "001-001",
+      title: "第001章",
+      goal: "",
+      conflict: "",
+      payoff: "",
+      informationGain: "",
+      endingHook: ""
+    });
+    expect(result.draft.sourceFiles).toContain("outlines/volume-001.draft.json");
+
+    const saved = await loadChaptersPlanDraft(result.outputPath);
+    expect(ChaptersPlanDraftSchema.parse(saved).generatedAt).toBe("2026-06-09T05:00:00.000Z");
+  });
+
+  it("requires a volume draft before chapter planning", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-"));
+    await createFixtureWorkspace(dir);
+
+    await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow(
+      "Run longgu plan volume --id 001"
+    );
+  });
+
+  it("refuses to overwrite an existing chapters draft without force", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const draftPath = path.join(dir, "outlines", "chapters-001.draft.json");
+    await writeFile(draftPath, "{\"kept\":true}\n", "utf8");
+
+    await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow("already exists");
+    await expect(readFile(draftPath, "utf8")).resolves.toBe("{\"kept\":true}\n");
+  });
+
+  it("replaces an existing chapters draft with force", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const draftPath = path.join(dir, "outlines", "chapters-001.draft.json");
+    await writeFile(draftPath, "{\"old\":true}\n", "utf8");
+
+    const result = await createChaptersPlanDraft({
+      workspaceDir: dir,
+      volumeId: "001",
+      force: true,
+      now: new Date("2026-06-09T06:00:00.000Z")
+    });
+
+    expect(result.overwritten).toBe(true);
+    await expect(readFile(draftPath, "utf8")).resolves.toContain("\"schemaVersion\"");
+    const saved = await loadChaptersPlanDraft(draftPath);
+    expect(saved.generatedAt).toBe("2026-06-09T06:00:00.000Z");
+  });
+
+  it("rejects unsafe volume ids", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-"));
+    await createFixtureWorkspace(dir);
+
+    await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "../001" })).rejects.toThrow(
       "Plan id must contain"
     );
   });

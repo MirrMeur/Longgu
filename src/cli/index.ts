@@ -3,7 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { ZodError } from "zod";
 import { checkOpenAICompatible, generateWithOpenAICompatible } from "../adapters/openaiCompatible.js";
-import { createBookPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
+import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
 import { loadLongguConfig } from "../core/config.js";
 import { writeChapter } from "../core/generation.js";
 import { latestRun } from "../core/runs.js";
@@ -14,7 +14,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.2.1");
+  .version("0.2.2");
 
 program
   .command("init")
@@ -104,6 +104,26 @@ plan
         force: options.force
       });
       console.log(`Volume plan draft: ${result.outputPath}`);
+      console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+    });
+  });
+
+plan
+  .command("chapters")
+  .description("Create structured chapter card drafts for a volume")
+  .requiredOption("--volume <id>", "volume id, e.g. 001")
+  .option("--force", "replace existing outlines/chapters-<volume>.draft.json")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { volume: string; force?: boolean }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await createChaptersPlanDraft({
+        workspaceDir,
+        volumeId: options.volume,
+        force: options.force
+      });
+      console.log(`Chapters plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
     });
   });

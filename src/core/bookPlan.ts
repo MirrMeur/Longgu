@@ -91,6 +91,37 @@ export const VolumePlanDraftSchema = z.object({
 
 export type VolumePlanDraft = z.infer<typeof VolumePlanDraftSchema>;
 
+export const ChaptersPlanDraftSchema = z.object({
+  schemaVersion: z.literal("longgu.chapters-plan-draft.v0.2"),
+  status: z.literal("draft"),
+  volumeId: z.string().min(1),
+  title: z.string().min(1),
+  genre: z.string().min(1),
+  volumePlanSource: z.string().min(1),
+  chapterCount: z.number().int().positive(),
+  chapters: z.array(
+    z.object({
+      chapterId: z.string().min(1),
+      title: z.string().min(1),
+      goal: z.string(),
+      conflict: z.string(),
+      payoff: z.string(),
+      informationGain: z.string(),
+      endingHook: z.string()
+    })
+  ),
+  sourceFiles: z.array(z.string().min(1)).min(1),
+  sourceDigest: z.array(
+    z.object({
+      file: z.string().min(1),
+      excerpt: z.string()
+    })
+  ),
+  generatedAt: z.string().datetime()
+});
+
+export type ChaptersPlanDraft = z.infer<typeof ChaptersPlanDraftSchema>;
+
 export async function createBookPlanDraft(input: {
   workspaceDir: string;
   force?: boolean;
@@ -203,6 +234,64 @@ export async function createVolumePlanDraft(input: {
   return { draft, outputPath, overwritten: exists };
 }
 
+export async function createChaptersPlanDraft(input: {
+  workspaceDir: string;
+  volumeId: string;
+  force?: boolean;
+  now?: Date;
+}): Promise<{ draft: ChaptersPlanDraft; outputPath: string; overwritten: boolean }> {
+  const volumeId = normalizePlanId(input.volumeId);
+  const volumePlanSource = `outlines/volume-${volumeId}.draft.json`;
+  const volumePlanPath = path.join(input.workspaceDir, volumePlanSource);
+  if (!(await pathExists(volumePlanPath))) {
+    throw new Error(`Volume plan draft is required. Run longgu plan volume --id ${volumeId} before longgu plan chapters.`);
+  }
+
+  const outputPath = path.join(input.workspaceDir, "outlines", `chapters-${volumeId}.draft.json`);
+  const exists = await pathExists(outputPath);
+  if (exists && !input.force) {
+    throw new Error(
+      `Chapters plan draft already exists. Re-run with --force to replace outlines/chapters-${volumeId}.draft.json.`
+    );
+  }
+
+  const volumePlan = await loadVolumePlanDraft(volumePlanPath);
+  const draft = ChaptersPlanDraftSchema.parse({
+    schemaVersion: "longgu.chapters-plan-draft.v0.2",
+    status: "draft",
+    volumeId,
+    title: `${volumePlan.title} 章节规划`,
+    genre: volumePlan.genre,
+    volumePlanSource,
+    chapterCount: volumePlan.chapterSeedCount,
+    chapters: Array.from({ length: volumePlan.chapterSeedCount }, (_, index) => {
+      const chapterNumber = String(index + 1).padStart(3, "0");
+      return {
+        chapterId: `${volumeId}-${chapterNumber}`,
+        title: `第${chapterNumber}章`,
+        goal: "",
+        conflict: "",
+        payoff: "",
+        informationGain: "",
+        endingHook: ""
+      };
+    }),
+    sourceFiles: [volumePlanSource, ...volumePlan.sourceFiles],
+    sourceDigest: [
+      {
+        file: volumePlanSource,
+        excerpt: compactExcerpt(JSON.stringify(volumePlan))
+      },
+      ...volumePlan.sourceDigest
+    ],
+    generatedAt: (input.now ?? new Date()).toISOString()
+  });
+
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
+  return { draft, outputPath, overwritten: exists };
+}
+
 export async function loadBookPlanDraft(filePath: string): Promise<BookPlanDraft> {
   const raw = await readFile(filePath, "utf8");
   return BookPlanDraftSchema.parse(JSON.parse(raw) as unknown);
@@ -211,6 +300,11 @@ export async function loadBookPlanDraft(filePath: string): Promise<BookPlanDraft
 export async function loadVolumePlanDraft(filePath: string): Promise<VolumePlanDraft> {
   const raw = await readFile(filePath, "utf8");
   return VolumePlanDraftSchema.parse(JSON.parse(raw) as unknown);
+}
+
+export async function loadChaptersPlanDraft(filePath: string): Promise<ChaptersPlanDraft> {
+  const raw = await readFile(filePath, "utf8");
+  return ChaptersPlanDraftSchema.parse(JSON.parse(raw) as unknown);
 }
 
 function normalizePlanId(value: string): string {

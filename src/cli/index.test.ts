@@ -9,24 +9,34 @@ import { createFixtureWorkspace } from "../test/testUtils.js";
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve("src", "cli", "index.ts");
 
-describe("longgu plan volume CLI", () => {
-  it("creates a volume draft after book planning", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-plan-volume-"));
+describe("longgu plan CLI", () => {
+  it("creates planning drafts through chapters", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-plan-chapters-"));
     await createFixtureWorkspace(dir);
 
     await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "book", dir], {
       cwd: path.resolve(".")
     });
-    const { stdout } = await execFileAsync(
+    const volumeResult = await execFileAsync(
       process.execPath,
       ["--import", "tsx", cliPath, "plan", "volume", "--id", "001", dir],
       { cwd: path.resolve(".") }
     );
+    const chaptersResult = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "plan", "chapters", "--volume", "001", dir],
+      { cwd: path.resolve(".") }
+    );
 
-    expect(stdout).toContain("Volume plan draft:");
-    expect(stdout).toContain("Status: created");
+    expect(volumeResult.stdout).toContain("Volume plan draft:");
+    expect(volumeResult.stdout).toContain("Status: created");
     await expect(readFile(path.join(dir, "outlines", "volume-001.draft.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.volume-plan-draft.v0.2\""
+    );
+    expect(chaptersResult.stdout).toContain("Chapters plan draft:");
+    expect(chaptersResult.stdout).toContain("Status: created");
+    await expect(readFile(path.join(dir, "outlines", "chapters-001.draft.json"), "utf8")).resolves.toContain(
+      "\"schemaVersion\": \"longgu.chapters-plan-draft.v0.2\""
     );
   });
 });
