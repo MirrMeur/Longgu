@@ -256,10 +256,15 @@ export async function inspectState(workspaceDir: string): Promise<StateInspectio
 
 export async function checkState(input: {
   workspaceDir: string;
+  chapterId?: string;
+  promiseMaxAge?: number;
   now?: Date;
 }): Promise<{ report: StateCheckReport; jsonPath: string; markdownPath: string }> {
   const ledgers = await loadAllStateLedgers(input.workspaceDir);
-  const issues = collectStateCheckIssues(ledgers);
+  const issues = collectStateCheckIssues(ledgers, {
+    chapterId: input.chapterId,
+    promiseMaxAge: input.promiseMaxAge ?? 5
+  });
   const generatedAt = input.now ?? new Date();
   const report = StateCheckReportSchema.parse({
     schemaVersion: "longgu.state-check.v0.3",
@@ -632,10 +637,14 @@ function detectStateConflicts(
   return conflicts;
 }
 
-function collectStateCheckIssues(ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>): StateCheckIssue[] {
+function collectStateCheckIssues(
+  ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>,
+  options: { chapterId?: string; promiseMaxAge: number }
+): StateCheckIssue[] {
   const issues: StateCheckIssue[] = [];
   const characters = (ledgers["characters.json"] as CharactersLedger).characters;
   const resources = (ledgers["resources.json"] as ResourcesLedger).resources;
+  const promises = (ledgers["reader-promises.json"] as ReaderPromisesLedger).promises;
   const characterIds = new Set(characters.map((character) => character.id));
 
   for (const character of characters) {
@@ -668,7 +677,40 @@ function collectStateCheckIssues(ledgers: Record<(typeof stateLedgerFiles)[numbe
     }
   }
 
+  const currentChapterNumber = options.chapterId ? parseChapterNumber(options.chapterId) : undefined;
+  if (currentChapterNumber !== undefined) {
+    for (const promise of promises) {
+      if (promise.status !== "active" || !promise.sourceChapterId) {
+        continue;
+      }
+      const sourceChapterNumber = parseChapterNumber(promise.sourceChapterId);
+      if (sourceChapterNumber === undefined) {
+        continue;
+      }
+      const age = currentChapterNumber - sourceChapterNumber;
+      if (age > options.promiseMaxAge) {
+        issues.push(
+          StateCheckIssueSchema.parse({
+            id: `reader-promises-${promise.id}-overdue`,
+            severity: "warning",
+            ledger: "reader-promises",
+            itemId: promise.id,
+            reason: `active reader promise from chapter ${promise.sourceChapterId} is ${age} chapter(s) old; max allowed age is ${options.promiseMaxAge}`
+          })
+        );
+      }
+    }
+  }
+
   return issues.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function parseChapterNumber(chapterId: string): number | undefined {
+  const normalized = chapterId.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return undefined;
+  }
+  return Number.parseInt(normalized, 10);
 }
 
 function renderStateCheckMarkdown(report: StateCheckReport): string {

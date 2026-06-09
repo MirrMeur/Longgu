@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -396,6 +396,51 @@ describe("longgu state CLI", () => {
     expect(settleResult.stdout).toContain("Settlement record:");
     expect(settleResult.stdout).toContain("truth: 1 touched, 1 added");
     await expect(readFile(path.join(dir, "state", "truth.json"), "utf8")).resolves.toContain("fact-001");
+  });
+
+  it("checks reader promise debt with chapter context", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-state-check-promise-"));
+    await createFixtureWorkspace(dir);
+    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "state", "init", "--force", dir], {
+      cwd: path.resolve(".")
+    });
+    await writeFile(
+      path.join(dir, "state", "reader-promises.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "reader-promises",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          promises: [
+            {
+              id: "promise-001",
+              text: "陆沉会查清灵石来历",
+              status: "active",
+              sourceChapterId: "001"
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "state", "check", "--chapter", "008", "--promise-max-age", "5", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(result.stdout).toContain("Status: needs-review");
+    expect(result.stdout).toContain("Issues: 1");
+    const checksDir = path.join(dir, "state", "checks");
+    const entries = await readdir(checksDir);
+    const markdownFile = entries.find((entry) => entry.endsWith(".md"));
+    expect(markdownFile).toBeDefined();
+    await expect(readFile(path.join(checksDir, markdownFile ?? ""), "utf8")).resolves.toContain(
+      "reader-promises/promise-001"
+    );
   });
 });
 

@@ -522,12 +522,14 @@ state
 state
   .command("check")
   .description("Write a V0.3 state consistency check report")
+  .option("--chapter <id>", "current chapter id for reader promise debt checks")
+  .option("--promise-max-age <number>", "maximum active reader promise age in chapters", parsePositiveInteger)
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string) => {
+  .action(async (dir: string, options: { chapter?: string; promiseMaxAge?: number }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
-      const result = await checkState({ workspaceDir });
+      const result = await checkState({ workspaceDir, chapterId: options.chapter, promiseMaxAge: options.promiseMaxAge });
       console.log(`State check JSON: ${result.jsonPath}`);
       console.log(`State check Markdown: ${result.markdownPath}`);
       console.log(`Status: ${result.report.status}`);

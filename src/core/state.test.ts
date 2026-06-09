@@ -153,6 +153,91 @@ describe("checkState", () => {
     expect(result.report.status).toBe("needs-review");
     expect(result.report.issues[0]?.reason).toContain("missing-character");
   });
+
+  it("reports overdue active reader promises when chapter context is provided", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-promise-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "reader-promises.json"),
+      `${JSON.stringify(
+        ReaderPromisesLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "reader-promises",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          promises: [
+            {
+              id: "promise-001",
+              text: "陆沉会查清灵石来历",
+              status: "active",
+              sourceChapterId: "001"
+            }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      chapterId: "008",
+      promiseMaxAge: 5,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("needs-review");
+    expect(result.report.issues[0]).toMatchObject({
+      id: "reader-promises-promise-001-overdue",
+      severity: "warning",
+      ledger: "reader-promises",
+      itemId: "promise-001"
+    });
+    expect(result.report.issues[0]?.reason).toContain("7 chapter(s) old");
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("reader-promises/promise-001");
+  });
+
+  it("does not report active reader promise age without chapter context", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-promise-no-chapter-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "reader-promises.json"),
+      `${JSON.stringify(
+        ReaderPromisesLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "reader-promises",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          promises: [
+            {
+              id: "promise-001",
+              text: "陆沉会查清灵石来历",
+              status: "active",
+              sourceChapterId: "001"
+            }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("passed");
+    expect(result.report.issues).toEqual([]);
+  });
 });
 
 describe("settleChapterState", () => {
