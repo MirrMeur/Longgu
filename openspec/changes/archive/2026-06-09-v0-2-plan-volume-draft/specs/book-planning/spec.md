@@ -1,8 +1,5 @@
-# book-planning Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change v0-2-plan-book-draft. Update Purpose after archive.
-## Requirements
 ### Requirement: Book planning CLI command
 The system SHALL provide V0.2 planning commands that create structured draft artifacts from the current Longgu workspace inputs.
 
@@ -57,15 +54,3 @@ The system SHALL validate generated planning drafts against structured schemas b
 - **WHEN** the system creates a volume draft
 - **THEN** the draft contains `schemaVersion`, `status`, `volumeId`, `title`, `genre`, `bookPlanSource`, `volumeGoal`, `primaryAntagonist`, `conflictEscalation`, `resourceChanges`, `keyPayoffs`, `endingHook`, `chapterSeedCount`, and `sourceFiles`
 - **THEN** `status` is `draft`
-
-### Requirement: Planning artifact directory
-The system SHALL provide an `outlines/` directory as the stable home for V0.2 planning artifacts.
-
-#### Scenario: Initialize workspace with planning directory
-- **WHEN** a user runs `longgu init` in a new target directory
-- **THEN** the system creates `outlines/` alongside `bible/`, `chapters/`, and `runs/`
-
-#### Scenario: Check planning workspace shape
-- **WHEN** a user runs a command that requires a valid workspace
-- **THEN** the workspace shape check includes `outlines/`
-

@@ -14,11 +14,12 @@
 - `longgu doctor`：检查配置、API key、模型连接和文件结构。
 - `longgu write chapter --id 001`：根据基础设定生成单章。
 - `longgu plan book`：从当前配置和 `bible/` 输入生成开书规格草稿。
+- `longgu plan volume --id 001`：从开书规格草稿生成分卷规划草稿。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
 - 成功/失败 run record 落盘。
-- 规划目录：`outlines/`，当前输出 `outlines/book.draft.json`。
+- 规划目录：`outlines/`，当前输出 `outlines/book.draft.json` 与 `outlines/volume-<id>.draft.json`。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖
@@ -79,6 +80,7 @@ proposal -> specs -> design -> tasks -> implementation -> validation -> archive
 当前正式规格：
 
 - `openspec/specs/minimal-cli-harness/spec.md`
+- `openspec/specs/book-planning/spec.md`
 
 ## 品牌与包名
 

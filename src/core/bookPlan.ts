@@ -53,6 +53,44 @@ export const BookPlanDraftSchema = z.object({
 
 export type BookPlanDraft = z.infer<typeof BookPlanDraftSchema>;
 
+export const VolumePlanDraftSchema = z.object({
+  schemaVersion: z.literal("longgu.volume-plan-draft.v0.2"),
+  status: z.literal("draft"),
+  volumeId: z.string().min(1),
+  title: z.string().min(1),
+  genre: z.string().min(1),
+  bookPlanSource: z.literal("outlines/book.draft.json"),
+  volumeGoal: z.string(),
+  primaryAntagonist: z.string(),
+  conflictEscalation: z.array(
+    z.object({
+      step: z.string(),
+      pressure: z.string(),
+      expectedPayoff: z.string()
+    })
+  ),
+  resourceChanges: z.array(
+    z.object({
+      resource: z.string(),
+      from: z.string(),
+      to: z.string()
+    })
+  ),
+  keyPayoffs: z.array(z.string()),
+  endingHook: z.string(),
+  chapterSeedCount: z.number().int().positive(),
+  sourceFiles: z.array(z.string().min(1)).min(1),
+  sourceDigest: z.array(
+    z.object({
+      file: z.string().min(1),
+      excerpt: z.string()
+    })
+  ),
+  generatedAt: z.string().datetime()
+});
+
+export type VolumePlanDraft = z.infer<typeof VolumePlanDraftSchema>;
+
 export async function createBookPlanDraft(input: {
   workspaceDir: string;
   force?: boolean;
@@ -110,9 +148,77 @@ export async function createBookPlanDraft(input: {
   return { draft, outputPath, overwritten: exists };
 }
 
+export async function createVolumePlanDraft(input: {
+  workspaceDir: string;
+  volumeId: string;
+  force?: boolean;
+  now?: Date;
+}): Promise<{ draft: VolumePlanDraft; outputPath: string; overwritten: boolean }> {
+  const volumeId = normalizePlanId(input.volumeId);
+  const bookPlanPath = path.join(input.workspaceDir, "outlines", "book.draft.json");
+  if (!(await pathExists(bookPlanPath))) {
+    throw new Error("Book plan draft is required. Run longgu plan book before longgu plan volume.");
+  }
+
+  const outputPath = path.join(input.workspaceDir, "outlines", `volume-${volumeId}.draft.json`);
+  const exists = await pathExists(outputPath);
+  if (exists && !input.force) {
+    throw new Error(
+      `Volume plan draft already exists. Re-run with --force to replace outlines/volume-${volumeId}.draft.json.`
+    );
+  }
+
+  const bookPlan = await loadBookPlanDraft(bookPlanPath);
+  const draft = VolumePlanDraftSchema.parse({
+    schemaVersion: "longgu.volume-plan-draft.v0.2",
+    status: "draft",
+    volumeId,
+    title: `${bookPlan.title} 第${volumeId}卷`,
+    genre: bookPlan.genre,
+    bookPlanSource: "outlines/book.draft.json",
+    volumeGoal: "",
+    primaryAntagonist: "",
+    conflictEscalation: [
+      { step: "opening", pressure: "", expectedPayoff: "" },
+      { step: "middle", pressure: "", expectedPayoff: "" },
+      { step: "climax", pressure: "", expectedPayoff: "" }
+    ],
+    resourceChanges: [],
+    keyPayoffs: [],
+    endingHook: "",
+    chapterSeedCount: 12,
+    sourceFiles: ["outlines/book.draft.json", ...bookPlan.sourceFiles],
+    sourceDigest: [
+      {
+        file: "outlines/book.draft.json",
+        excerpt: compactExcerpt(JSON.stringify(bookPlan))
+      },
+      ...bookPlan.sourceDigest
+    ],
+    generatedAt: (input.now ?? new Date()).toISOString()
+  });
+
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
+  return { draft, outputPath, overwritten: exists };
+}
+
 export async function loadBookPlanDraft(filePath: string): Promise<BookPlanDraft> {
   const raw = await readFile(filePath, "utf8");
   return BookPlanDraftSchema.parse(JSON.parse(raw) as unknown);
+}
+
+export async function loadVolumePlanDraft(filePath: string): Promise<VolumePlanDraft> {
+  const raw = await readFile(filePath, "utf8");
+  return VolumePlanDraftSchema.parse(JSON.parse(raw) as unknown);
+}
+
+function normalizePlanId(value: string): string {
+  const id = value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) {
+    throw new Error("Plan id must contain only letters, numbers, underscores, or hyphens.");
+  }
+  return id;
 }
 
 function pickLabeledLine(
