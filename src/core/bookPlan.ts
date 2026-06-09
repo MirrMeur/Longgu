@@ -123,6 +123,40 @@ export const ChaptersPlanDraftSchema = z.object({
 
 export type ChaptersPlanDraft = z.infer<typeof ChaptersPlanDraftSchema>;
 
+const ChapterPlanAuditSeveritySchema = z.enum(["critical", "warning", "info"]);
+const ChapterPlanAuditStatusSchema = z.enum(["passed", "needs-revision", "blocked"]);
+const ChapterPlanAuditFieldSchema = z.enum([
+  "chapterCount",
+  "goal",
+  "conflict",
+  "payoff",
+  "informationGain",
+  "endingHook"
+]);
+
+export const ChapterPlanAuditIssueSchema = z.object({
+  id: z.string().min(1),
+  severity: ChapterPlanAuditSeveritySchema,
+  chapterId: z.string().min(1).optional(),
+  field: ChapterPlanAuditFieldSchema,
+  reason: z.string().min(1),
+  fix: z.string().min(1)
+});
+
+export const ChapterPlanAuditSchema = z.object({
+  schemaVersion: z.literal("longgu.chapter-plan-audit.v0.2"),
+  volumeId: z.string().min(1),
+  status: ChapterPlanAuditStatusSchema,
+  blocked: z.boolean(),
+  summary: z.string().min(1),
+  issues: z.array(ChapterPlanAuditIssueSchema),
+  sourceFiles: z.array(z.string().min(1)),
+  generatedAt: z.string().datetime()
+});
+
+export type ChapterPlanAudit = z.infer<typeof ChapterPlanAuditSchema>;
+export type ChapterPlanAuditIssue = z.infer<typeof ChapterPlanAuditIssueSchema>;
+
 export async function createBookPlanDraft(input: {
   workspaceDir: string;
   force?: boolean;
@@ -202,6 +236,45 @@ export async function createBookPlanDraft(input: {
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
   return { draft, outputPath, overwritten: exists, runDir: modelResult?.runDir };
+}
+
+export async function auditChapterPlan(input: {
+  workspaceDir: string;
+  volumeId: string;
+  now?: Date;
+}): Promise<{ audit: ChapterPlanAudit; jsonPath: string; markdownPath: string }> {
+  const volumeId = normalizePlanId(input.volumeId);
+  const planSource = `outlines/chapters-${volumeId}.draft.json`;
+  const planPath = path.join(input.workspaceDir, planSource);
+  if (!(await pathExists(planPath))) {
+    throw new Error(`Chapters plan draft is required before audit: ${planSource}`);
+  }
+
+  const plan = await loadChaptersPlanDraft(planPath);
+  const issues = collectChapterPlanIssues(plan);
+  const hasCritical = issues.some((issue) => issue.severity === "critical");
+  const hasWarning = issues.some((issue) => issue.severity === "warning");
+  const audit = ChapterPlanAuditSchema.parse({
+    schemaVersion: "longgu.chapter-plan-audit.v0.2",
+    volumeId,
+    status: hasCritical ? "blocked" : hasWarning ? "needs-revision" : "passed",
+    blocked: hasCritical,
+    summary:
+      issues.length === 0
+        ? `Volume ${volumeId} chapter plan is ready for drafting.`
+        : `Volume ${volumeId} chapter plan has ${issues.length} readiness issue(s).`,
+    issues,
+    sourceFiles: [planSource],
+    generatedAt: (input.now ?? new Date()).toISOString()
+  });
+
+  const outputDir = path.join(input.workspaceDir, "audits");
+  await mkdir(outputDir, { recursive: true });
+  const jsonPath = path.join(outputDir, `chapters-${volumeId}.plan-audit.json`);
+  const markdownPath = path.join(outputDir, `chapters-${volumeId}.plan-audit.md`);
+  await writeFile(jsonPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  await writeFile(markdownPath, renderChapterPlanAuditMarkdown(audit), "utf8");
+  return { audit, jsonPath, markdownPath };
 }
 
 export async function createVolumePlanDraft(input: {
@@ -450,6 +523,116 @@ function createChapterCards(volumePlan: VolumePlanDraft): ChaptersPlanDraft["cha
         : `章尾留下与「${volumePlan.endingHook || volumePlan.volumeGoal || volumePlan.title}」相关的升级信号。`
     };
   });
+}
+
+function collectChapterPlanIssues(plan: ChaptersPlanDraft): ChapterPlanAuditIssue[] {
+  const issues: ChapterPlanAuditIssue[] = [];
+  if (plan.chapterCount !== plan.chapters.length) {
+    issues.push(
+      ChapterPlanAuditIssueSchema.parse({
+        id: "chapter-count-mismatch",
+        severity: "critical",
+        field: "chapterCount",
+        reason: `Declared chapterCount ${plan.chapterCount} does not match ${plan.chapters.length} chapter card(s).`,
+        fix: "Regenerate or edit the chapter plan so chapterCount matches the actual chapter card count."
+      })
+    );
+  }
+
+  for (const chapter of plan.chapters) {
+    for (const field of chapterReadinessFields) {
+      const value = chapter[field];
+      if (isWeakChapterPlanField(value)) {
+        issues.push(
+          ChapterPlanAuditIssueSchema.parse({
+            id: `${chapter.chapterId}-${field}-weak`,
+            severity: "warning",
+            chapterId: chapter.chapterId,
+            field,
+            reason: `${field} is missing, placeholder-like, or too generic to guide drafting.`,
+            fix: `Rewrite ${field} with a concrete pressure, action, payoff, information change, or next-scene question.`
+          })
+        );
+      }
+    }
+  }
+
+  for (let index = 1; index < plan.chapters.length; index += 1) {
+    const previous = plan.chapters[index - 1];
+    const current = plan.chapters[index];
+    for (const field of repeatedChapterFields) {
+      if (normalizePlanText(previous[field]) === normalizePlanText(current[field])) {
+        issues.push(
+          ChapterPlanAuditIssueSchema.parse({
+            id: `${current.chapterId}-${field}-repeated`,
+            severity: "warning",
+            chapterId: current.chapterId,
+            field,
+            reason: `${field} repeats the previous chapter, which weakens escalation and page-turning momentum.`,
+            fix: `Vary ${field} by changing the arena, tactic, cost, witness, payoff, or tail-hook question.`
+          })
+        );
+      }
+    }
+  }
+
+  return issues.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+const chapterReadinessFields = ["goal", "conflict", "payoff", "informationGain", "endingHook"] as const;
+const repeatedChapterFields = ["goal", "payoff", "endingHook"] as const;
+
+const placeholderPatterns = [
+  "todo",
+  "tbd",
+  "placeholder",
+  "未定",
+  "待定",
+  "补充",
+  "暂无",
+  "空",
+  "n/a",
+  "随便",
+  "推进剧情",
+  "继续发展",
+  "发生冲突",
+  "制造阻力",
+  "留下悬念",
+  "获得进展"
+];
+
+function isWeakChapterPlanField(value: string): boolean {
+  const normalized = normalizePlanText(value);
+  if (normalized.length < 6) {
+    return true;
+  }
+  return placeholderPatterns.some((pattern) => normalized.includes(normalizePlanText(pattern)));
+}
+
+function normalizePlanText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function renderChapterPlanAuditMarkdown(audit: ChapterPlanAudit): string {
+  const issues = audit.issues.length
+    ? audit.issues
+        .map(
+          (issue) =>
+            `- [${issue.severity}] ${issue.id}${issue.chapterId ? ` (${issue.chapterId}/${issue.field})` : ` (${issue.field})`}\n  - Reason: ${issue.reason}\n  - Fix: ${issue.fix}`
+        )
+        .join("\n")
+    : "- No issues.";
+  return `# Chapter Plan Audit ${audit.volumeId}
+
+- Status: ${audit.status}
+- Blocked: ${audit.blocked}
+- Summary: ${audit.summary}
+- Source files: ${audit.sourceFiles.join(", ")}
+
+## Issues
+
+${issues}
+`;
 }
 
 function resolveConflictStage(volumePlan: VolumePlanDraft, index: number): VolumePlanDraft["conflictEscalation"][number] {

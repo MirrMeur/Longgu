@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 import { createFixtureWorkspace } from "../test/testUtils.js";
 import {
   BookPlanDraftSchema,
+  ChapterPlanAuditSchema,
   ChaptersPlanDraftSchema,
   VolumePlanDraftSchema,
+  auditChapterPlan,
   createBookPlanDraft,
   createChaptersPlanDraft,
   createVolumePlanDraft,
@@ -308,6 +310,120 @@ describe("createChaptersPlanDraft", () => {
 
     await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "../001" })).rejects.toThrow(
       "Plan id must contain"
+    );
+  });
+});
+
+describe("auditChapterPlan", () => {
+  it("passes a ready chapter plan and writes audit artifacts", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-chapter-plan-pass-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const planResult = await createChaptersPlanDraft({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-09T05:00:00.000Z")
+    });
+    const readyPlan = {
+      ...planResult.draft,
+      chapters: planResult.draft.chapters.map((chapter, index) => ({
+        ...chapter,
+        goal: `陆沉在第 ${index + 1} 个公开测试节点争取一枚可见资源。`,
+        conflict: `执事安排第 ${index + 1} 个更苛刻条件，逼陆沉暴露底牌。`,
+        payoff: `陆沉完成第 ${index + 1} 次资源翻盘，并让旁观者改变判断。`,
+        informationGain: `读者得知黑纹在第 ${index + 1} 次共鸣中会消耗灵石。`,
+        endingHook: `第 ${index + 1} 个高阶人物注意到黑纹异常，提出新的公开要求。`
+      }))
+    };
+    await writeFile(planResult.outputPath, `${JSON.stringify(readyPlan, null, 2)}\n`, "utf8");
+
+    const result = await auditChapterPlan({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-09T06:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("passed");
+    expect(result.audit.blocked).toBe(false);
+    expect(result.audit.issues).toEqual([]);
+    expect(ChapterPlanAuditSchema.parse(JSON.parse(await readFile(result.jsonPath, "utf8")) as unknown).schemaVersion).toBe(
+      "longgu.chapter-plan-audit.v0.2"
+    );
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("Chapter Plan Audit 001");
+  });
+
+  it("flags weak chapter card fields and repeated adjacent hooks", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-chapter-plan-warn-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const planResult = await createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const weakPlan = {
+      ...planResult.draft,
+      chapters: [
+        {
+          ...planResult.draft.chapters[0],
+          goal: "待定",
+          conflict: "发生冲突",
+          endingHook: "同一个尾钩"
+        },
+        {
+          ...planResult.draft.chapters[1],
+          endingHook: "同一个尾钩"
+        },
+        ...planResult.draft.chapters.slice(2)
+      ]
+    };
+    await writeFile(planResult.outputPath, `${JSON.stringify(weakPlan, null, 2)}\n`, "utf8");
+
+    const result = await auditChapterPlan({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-09T06:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("needs-revision");
+    expect(result.audit.blocked).toBe(false);
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("001-001-goal-weak");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("001-001-conflict-weak");
+    expect(result.audit.issues.map((issue) => issue.id)).toContain("001-002-endingHook-repeated");
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("goal is missing");
+  });
+
+  it("blocks chapter count mismatches", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-chapter-plan-block-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    const planResult = await createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" });
+    await writeFile(
+      planResult.outputPath,
+      `${JSON.stringify({ ...planResult.draft, chapterCount: planResult.draft.chapterCount + 1 }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const result = await auditChapterPlan({
+      workspaceDir: dir,
+      volumeId: "001",
+      now: new Date("2026-06-09T06:00:00.000Z")
+    });
+
+    expect(result.audit.status).toBe("blocked");
+    expect(result.audit.blocked).toBe(true);
+    expect(result.audit.issues.find((issue) => issue.id === "chapter-count-mismatch")).toMatchObject({
+      id: "chapter-count-mismatch",
+      severity: "critical",
+      field: "chapterCount"
+    });
+  });
+
+  it("requires a chapter plan before auditing", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-chapter-plan-missing-"));
+    await createFixtureWorkspace(dir);
+
+    await expect(auditChapterPlan({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow(
+      "Chapters plan draft is required before audit"
     );
   });
 });
