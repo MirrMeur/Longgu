@@ -13,7 +13,7 @@ const variantSchemaVersion = z.literal("longgu.experiment-variant.v0.9");
 const scoreSchemaVersion = z.literal("longgu.experiment-score.v0.9");
 const compareSchemaVersion = z.literal("longgu.experiment-compare.v0.9");
 
-export const ExperimentSortKeySchema = z.enum(["payoff", "hook", "ai-flavor", "setting-conflict", "cost"]);
+export const ExperimentSortKeySchema = z.enum(["payoff", "hook", "ai-flavor", "setting-conflict", "contract", "cost"]);
 
 export const ExperimentManifestSchema = z.object({
   schemaVersion: experimentSchemaVersion,
@@ -56,6 +56,9 @@ export const ExperimentCompareItemSchema = z.object({
   settingConflict: z.number().min(0).max(10).optional(),
   auditRetention: z.number().min(0).max(10).optional(),
   auditAiFlavor: z.number().min(0).max(10).optional(),
+  auditContractStatus: z.enum(["complete", "incomplete"]).optional(),
+  auditContractMissingCount: z.number().int().nonnegative().optional(),
+  auditContractDiagnosis: z.string().optional(),
   issueCount: z.number().int().nonnegative().optional(),
   criticalCount: z.number().int().nonnegative().optional(),
   estimatedCost: z.number().min(0).optional(),
@@ -296,6 +299,9 @@ async function loadCompareItem(
     settingConflict: score?.settingConflict,
     auditRetention: audit?.scores.retention,
     auditAiFlavor: audit?.scores.aiFlavor,
+    auditContractStatus: audit?.contract.status,
+    auditContractMissingCount: audit?.contract.missing.length,
+    auditContractDiagnosis: audit?.contract.diagnosis,
     issueCount: audit?.issues.length,
     criticalCount: audit?.issues.filter((issue) => issue.severity === "critical").length,
     estimatedCost: metadata.estimatedCost ?? run?.estimatedCost,
@@ -328,9 +334,23 @@ function compareItems(
   const leftValue = sortValue(left, sort);
   const rightValue = sortValue(right, sort);
   if (leftValue !== rightValue) {
-    return sort === "ai-flavor" || sort === "setting-conflict" || sort === "cost"
+    return sort === "ai-flavor" || sort === "setting-conflict" || sort === "contract" || sort === "cost"
       ? leftValue - rightValue
       : rightValue - leftValue;
+  }
+  if (sort === "contract") {
+    const retention = (right.auditRetention ?? -1) - (left.auditRetention ?? -1);
+    if (retention !== 0) {
+      return retention;
+    }
+    const hook = (right.hook ?? -1) - (left.hook ?? -1);
+    if (hook !== 0) {
+      return hook;
+    }
+    const payoff = (right.payoff ?? -1) - (left.payoff ?? -1);
+    if (payoff !== 0) {
+      return payoff;
+    }
   }
   return left.variantId.localeCompare(right.variantId);
 }
@@ -345,16 +365,28 @@ function sortValue(item: z.infer<typeof ExperimentCompareItemSchema>, sort: Expe
       return item.aiFlavor ?? Number.POSITIVE_INFINITY;
     case "setting-conflict":
       return item.settingConflict ?? item.criticalCount ?? Number.POSITIVE_INFINITY;
+    case "contract":
+      return contractSortValue(item);
     case "cost":
       return item.estimatedCost ?? Number.POSITIVE_INFINITY;
   }
+}
+
+function contractSortValue(item: z.infer<typeof ExperimentCompareItemSchema>): number {
+  if (item.auditContractStatus === "complete") {
+    return 0;
+  }
+  if (item.auditContractStatus === "incomplete") {
+    return 1 + (item.auditContractMissingCount ?? Number.MAX_SAFE_INTEGER);
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 function renderCompareMarkdown(compare: ExperimentCompare): string {
   const rows = compare.variants
     .map(
       (item) =>
-        `| ${item.variantId} | ${item.modelProfile} | ${formatNumber(item.payoff)} | ${formatNumber(item.hook)} | ${formatNumber(item.aiFlavor)} | ${formatNumber(item.settingConflict)} | ${formatNumber(item.estimatedCost)} | ${item.note ?? ""} |`
+        `| ${item.variantId} | ${item.modelProfile} | ${formatNumber(item.payoff)} | ${formatNumber(item.hook)} | ${formatNumber(item.aiFlavor)} | ${formatContractStatus(item.auditContractStatus)} | ${formatNumber(item.auditContractMissingCount)} | ${formatNumber(item.settingConflict)} | ${formatNumber(item.estimatedCost)} | ${item.note ?? ""} |`
     )
     .join("\n");
   return `# Experiment Compare ${compare.experimentId}
@@ -362,9 +394,9 @@ function renderCompareMarkdown(compare: ExperimentCompare): string {
 - Sort: ${compare.sort}
 - Generated at: ${compare.generatedAt}
 
-| Variant | Model | Payoff | Hook | AI Flavor | Setting Conflict | Cost | Note |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-${rows || "| n/a | n/a | n/a | n/a | n/a | n/a | n/a | |"}
+| Variant | Model | Payoff | Hook | AI Flavor | Contract | Missing | Setting Conflict | Cost | Note |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+${rows || "| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | |"}
 `;
 }
 
@@ -378,6 +410,10 @@ function normalizeExperimentId(value: string): string {
 
 function formatNumber(value: number | undefined): string {
   return value === undefined ? "n/a" : String(value);
+}
+
+function formatContractStatus(value: "complete" | "incomplete" | undefined): string {
+  return value ?? "n/a";
 }
 
 function normalizeMarkdown(text: string): string {

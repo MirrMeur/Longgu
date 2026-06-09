@@ -315,7 +315,7 @@ experiment
   .command("compare")
   .description("Compare experiment variants")
   .requiredOption("--id <id>", "experiment id")
-  .option("--sort <key>", "sort key: payoff, hook, ai-flavor, setting-conflict, cost", parseExperimentSortKey)
+  .option("--sort <key>", "sort key: payoff, hook, ai-flavor, setting-conflict, contract, cost", parseExperimentSortKey)
   .argument("[dir]", "workspace directory", ".")
   .action(async (dir: string, options: { id: string; sort?: ReturnType<typeof parseExperimentSortKey> }) => {
     await runCli(async () => {

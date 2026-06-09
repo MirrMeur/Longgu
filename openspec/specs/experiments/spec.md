@@ -27,19 +27,30 @@ The system SHALL persist human scores for an experiment variant.
 - **THEN** the system writes `experiments/opening-ab/variants/hook-a/scores.json`
 
 ### Requirement: Experiment comparison
-The system SHALL aggregate variant metadata, scores, audit data, and costs into comparison reports.
+The system SHALL aggregate variant metadata, scores, audit data, chapter contract evidence, and costs into comparison reports.
 
 #### Scenario: Compare variants
 - **WHEN** a user runs `longgu experiment compare --id opening-ab`
 - **THEN** the system writes `experiments/opening-ab/compare.json`
 - **THEN** the system writes `experiments/opening-ab/compare.md`
 
+#### Scenario: Compare variants with contract evidence
+- **WHEN** a variant metadata file links a chapter audit JSON that contains `contract`
+- **THEN** `longgu experiment compare` includes `auditContractStatus`, `auditContractMissingCount`, and `auditContractDiagnosis` for that variant in `compare.json`
+- **AND** `compare.md` includes the contract status and missing count
+
 ### Requirement: Comparison sorting
-The system SHALL support deterministic sorting for experiment comparison reports.
+The system SHALL support deterministic sorting for experiment comparison reports, including contract-aware ranking.
 
 #### Scenario: Sort by hook
 - **WHEN** a user runs `longgu experiment compare --id opening-ab --sort hook`
 - **THEN** variants with higher human hook scores appear first in the report
+
+#### Scenario: Sort by contract
+- **WHEN** a user runs `longgu experiment compare --id opening-ab --sort contract`
+- **THEN** variants with complete chapter contracts appear before variants with incomplete or missing chapter contracts
+- **AND** variants with fewer missing contract fields appear before variants with more missing contract fields
+- **AND** ties are deterministic
 
 ### Requirement: Model-backed experiment generation
 The system SHALL generate experiment variants through the configured model route and register them as comparable variants.
@@ -54,4 +65,3 @@ The system SHALL generate experiment variants through the configured model route
 #### Scenario: Generated variants compare with manual variants
 - **WHEN** a generated variant has scores or audit metadata
 - **THEN** `longgu experiment compare` includes it in the same report as registered manual variants
-
