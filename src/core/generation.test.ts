@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -60,6 +60,80 @@ describe("writeChapter", () => {
     expect(run?.metadata.inputFiles).toEqual(
       expect.arrayContaining(["outlines/chapters-001.draft.json", "chapters/000.md"])
     );
+  });
+
+  it("blocks drafting from a planned chapter when chapter-plan audit is missing", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-plan-audit-missing-"));
+    await createPlanningStateFixture(dir);
+    await rm(path.join(dir, "audits", "chapters-001.plan-audit.json"));
+
+    await expect(
+      writeChapter({
+        workspaceDir: dir,
+        chapterId: "001",
+        apiKey: "secret",
+        generate: async () => ({ text: "# 第一章\n\n不应写入。" })
+      })
+    ).rejects.toThrow("Chapter plan audit is required before drafting");
+    await expect(stat(path.join(dir, "chapters", "001.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("blocks drafting when chapter-plan audit has not passed", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-plan-audit-failed-"));
+    await createPlanningStateFixture(dir);
+    await writeFile(
+      path.join(dir, "audits", "chapters-001.plan-audit.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-plan-audit.v0.2",
+          volumeId: "001",
+          status: "needs-revision",
+          blocked: false,
+          summary: "Plan needs work.",
+          issues: [
+            {
+              id: "001-goal-weak",
+              severity: "warning",
+              chapterId: "001",
+              field: "goal",
+              reason: "goal is too vague",
+              fix: "make the goal concrete"
+            }
+          ],
+          sourceFiles: ["outlines/chapters-001.draft.json"],
+          generatedAt: "2026-06-09T12:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      writeChapter({
+        workspaceDir: dir,
+        chapterId: "001",
+        apiKey: "secret",
+        generate: async () => ({ text: "# 第一章\n\n不应写入。" })
+      })
+    ).rejects.toThrow("Chapter plan audit did not pass");
+    await expect(stat(path.join(dir, "chapters", "001.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("can explicitly skip the chapter-plan audit gate", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-plan-audit-skip-"));
+    await createPlanningStateFixture(dir);
+    await rm(path.join(dir, "audits", "chapters-001.plan-audit.json"));
+
+    const result = await writeChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      apiKey: "secret",
+      skipPlanAudit: true,
+      generate: async () => ({ text: "# 第一章\n\n跳过门禁写入。" })
+    });
+
+    await expect(readFile(result.chapterPath, "utf8")).resolves.toContain("跳过门禁写入");
   });
 
   it("falls back to the configured drafting fallback model", async () => {
@@ -155,6 +229,25 @@ describe("writeChapter", () => {
       )}\n`,
       "utf8"
     );
+    await mkdir(path.join(dir, "audits"), { recursive: true });
+    await writeFile(
+      path.join(dir, "audits", "chapters-001.plan-audit.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-plan-audit.v0.2",
+          volumeId: "001",
+          status: "passed",
+          blocked: false,
+          summary: "Manual test plan is ready.",
+          issues: [],
+          sourceFiles: ["outlines/chapters-001.draft.json"],
+          generatedAt: "2026-06-09T12:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
 
     await writeChapter({
       workspaceDir: dir,
@@ -192,6 +285,16 @@ describe("writeChapter", () => {
     await expect(readFile(result.contextJsonPath, "utf8")).resolves.toContain("\"schemaVersion\": \"longgu.context-pack.v0.7\"");
   });
 
+  it("applies the chapter-plan audit gate to host prompt export", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-host-prompt-plan-audit-"));
+    await createPlanningStateFixture(dir);
+    await rm(path.join(dir, "audits", "chapters-001.plan-audit.json"));
+
+    await expect(exportHostChapterPrompt({ workspaceDir: dir, chapterId: "001" })).rejects.toThrow(
+      "Chapter plan audit is required before drafting"
+    );
+  });
+
   it("imports a host LLM draft and records zero-cost host metadata", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-host-import-"));
     await createPlanningStateFixture(dir);
@@ -220,6 +323,23 @@ context:
     expect(run?.metadata.modelProfile).toBe("host");
     expect(run?.metadata.estimatedCost).toBe(0);
     expect(run?.metadata.outputFile).toBe("output.md");
+  });
+
+  it("applies the chapter-plan audit gate to host draft import", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-host-import-plan-audit-"));
+    await createPlanningStateFixture(dir);
+    await rm(path.join(dir, "audits", "chapters-001.plan-audit.json"));
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+    await writeFile(path.join(dir, "drafts", "001.md"), "# 宿主标题\n\n不应导入。", "utf8");
+
+    await expect(
+      importHostChapterDraft({
+        workspaceDir: dir,
+        chapterId: "001",
+        inputPath: "drafts/001.md"
+      })
+    ).rejects.toThrow("Chapter plan audit is required before drafting");
+    await expect(stat(path.join(dir, "chapters", "001.md"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("persists a failed run record when fake provider fails", async () => {

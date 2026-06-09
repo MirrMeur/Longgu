@@ -124,7 +124,7 @@ The system SHALL provide an `outlines/` directory as the stable home for V0.2 pl
 - **THEN** the workspace shape check includes `outlines/`
 
 ### Requirement: Chapter plan readiness audit
-The system SHALL provide a deterministic chapter plan readiness audit before chapter drafting.
+The system SHALL provide a deterministic chapter plan readiness audit before chapter drafting, and drafting commands SHALL use its result as a gate when a matching chapter card exists.
 
 #### Scenario: Audit chapter plan
 - **WHEN** a user runs `longgu audit chapter-plan --volume 001`
@@ -149,3 +149,8 @@ The system SHALL provide a deterministic chapter plan readiness audit before cha
 - **THEN** the system reports the missing chapter plan
 - **AND** no final audit artifacts are written
 
+#### Scenario: Failed chapter plan audit blocks drafting
+- **WHEN** `audits/chapters-001.plan-audit.json` has status `needs-revision` or `blocked`
+- **AND** a user drafts a chapter whose card belongs to `outlines/chapters-001.draft.json`
+- **THEN** the drafting command reports the failed plan audit
+- **AND** no chapter file is written

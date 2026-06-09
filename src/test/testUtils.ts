@@ -117,6 +117,25 @@ export async function createPlanningStateFixture(root: string): Promise<void> {
     )}\n`,
     "utf8"
   );
+  await mkdir(path.join(root, "audits"), { recursive: true });
+  await writeFile(
+    path.join(root, "audits", "chapters-001.plan-audit.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: "longgu.chapter-plan-audit.v0.2",
+        volumeId: "001",
+        status: "passed",
+        blocked: false,
+        summary: "Fixture chapter plan is ready for drafting.",
+        issues: [],
+        sourceFiles: ["outlines/chapters-001.draft.json"],
+        generatedAt: now
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
   await writeFile(
     path.join(root, "state", "truth.json"),
     `${JSON.stringify(

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -231,6 +231,27 @@ describe("longgu host LLM write CLI", () => {
 
     expect(importResult.stdout).toContain("Imported chapter:");
     await expect(readFile(path.join(dir, "chapters", "001.md"), "utf8")).resolves.toContain("宿主模型写出的正文");
+  });
+
+  it("requires passed chapter-plan audit for planned host prompt unless skipped", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-host-write-plan-audit-"));
+    await createPlanningStateFixture(dir);
+    await rm(path.join(dir, "audits", "chapters-001.plan-audit.json"));
+
+    await expect(
+      execFileAsync(process.execPath, ["--import", "tsx", cliPath, "write", "chapter", "--id", "001", "--host-prompt", dir], {
+        cwd: path.resolve(".")
+      })
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("Chapter plan audit is required before drafting")
+    });
+
+    const skipped = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "write", "chapter", "--id", "001", "--host-prompt", "--skip-plan-audit", dir],
+      { cwd: path.resolve(".") }
+    );
+    expect(skipped.stdout).toContain("Host prompt:");
   });
 });
 

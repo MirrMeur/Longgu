@@ -60,7 +60,7 @@ The system SHALL provide `longgu doctor` to check workspace structure, configura
 - **THEN** `longgu doctor` succeeds if the minimal chat completion check succeeds
 
 ### Requirement: Chapter generation from base inputs
-The system SHALL provide `longgu write chapter --id <id>` to generate or import a chapter from the current Longgu workspace inputs and prompt template.
+The system SHALL provide `longgu write chapter --id <id>` to generate or import chapter prose, and it SHALL require a passed chapter-plan audit when a matching chapter card exists unless explicitly skipped.
 
 #### Scenario: Export host LLM drafting prompt
 - **WHEN** a user runs `longgu write chapter --id 001 --host-prompt` in a valid host-only workspace
@@ -82,6 +82,24 @@ The system SHALL provide `longgu write chapter --id <id>` to generate or import 
 - **THEN** the system renders the drafting prompt from included context-pack sections
 - **THEN** the system writes the generated chapter to `chapters/001.md`
 - **THEN** the system creates a run record under `runs/`
+
+#### Scenario: Block drafting when chapter plan audit is missing
+- **WHEN** a user runs `longgu write chapter --id 001-001`
+- **AND** `outlines/chapters-001.draft.json` contains a card for chapter `001-001`
+- **AND** `audits/chapters-001.plan-audit.json` does not exist
+- **THEN** the system reports that chapter-plan audit is required
+- **AND** no chapter file is written
+
+#### Scenario: Allow drafting after passed chapter plan audit
+- **WHEN** a user runs `longgu write chapter --id 001-001`
+- **AND** a matching chapter card exists
+- **AND** `audits/chapters-001.plan-audit.json` has status `passed`
+- **THEN** drafting may proceed
+
+#### Scenario: Explicitly skip chapter plan audit gate
+- **WHEN** a user runs `longgu write chapter --id 001-001 --skip-plan-audit`
+- **AND** a matching chapter card exists
+- **THEN** the system bypasses the chapter-plan audit gate
 
 ### Requirement: Persisted generation run records
 The system SHALL persist enough information for each generation run to be reviewed and reproduced.
@@ -119,4 +137,3 @@ The system SHALL include an `examples/xuanhuan-demo/` workspace that demonstrate
 #### Scenario: Example project is inspectable
 - **WHEN** a developer opens `examples/xuanhuan-demo/`
 - **THEN** it contains `longgu.yaml`, base `bible/` files, `chapters/`, and `runs/` placeholders compatible with V0.1 commands
-
