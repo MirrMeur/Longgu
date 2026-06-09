@@ -116,6 +116,126 @@ describe("longgu model and cost CLI", () => {
   });
 });
 
+describe("longgu experiment CLI", () => {
+  it("creates, registers, scores, and compares experiment variants", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-experiment-"));
+    await createFixtureWorkspace(dir);
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+    await writeFile(path.join(dir, "drafts", "hook-a.md"), "# A\n\n测试石裂开。\n", "utf8");
+    await writeFile(path.join(dir, "drafts", "hook-b.md"), "# B\n\n执事冷笑。\n", "utf8");
+
+    const createResult = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "experiment", "create", "--id", "opening-ab", "--goal", "测试开篇钩子", dir],
+      { cwd: path.resolve(".") }
+    );
+    expect(createResult.stdout).toContain("Experiment manifest:");
+
+    await execFileAsync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        cliPath,
+        "experiment",
+        "run",
+        "--id",
+        "opening-ab",
+        "--variant",
+        "hook-a",
+        "--input",
+        "drafts/hook-a.md",
+        "--model",
+        "fast",
+        "--cost",
+        "0.01",
+        dir
+      ],
+      { cwd: path.resolve(".") }
+    );
+    await execFileAsync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        cliPath,
+        "experiment",
+        "run",
+        "--id",
+        "opening-ab",
+        "--variant",
+        "hook-b",
+        "--input",
+        "drafts/hook-b.md",
+        "--model",
+        "strong",
+        "--cost",
+        "0.03",
+        dir
+      ],
+      { cwd: path.resolve(".") }
+    );
+    await execFileAsync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        cliPath,
+        "experiment",
+        "score",
+        "--id",
+        "opening-ab",
+        "--variant",
+        "hook-a",
+        "--payoff",
+        "7",
+        "--hook",
+        "9",
+        "--ai-flavor",
+        "2",
+        dir
+      ],
+      { cwd: path.resolve(".") }
+    );
+    await execFileAsync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        cliPath,
+        "experiment",
+        "score",
+        "--id",
+        "opening-ab",
+        "--variant",
+        "hook-b",
+        "--payoff",
+        "8",
+        "--hook",
+        "6",
+        "--ai-flavor",
+        "3",
+        dir
+      ],
+      { cwd: path.resolve(".") }
+    );
+    const compareResult = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "experiment", "compare", "--id", "opening-ab", "--sort", "hook", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(compareResult.stdout).toContain("Compare JSON:");
+    await expect(readFile(path.join(dir, "experiments", "opening-ab", "compare.json"), "utf8")).resolves.toContain(
+      "\"schemaVersion\": \"longgu.experiment-compare.v0.9\""
+    );
+    const compare = JSON.parse(await readFile(path.join(dir, "experiments", "opening-ab", "compare.json"), "utf8")) as {
+      variants: Array<{ variantId: string }>;
+    };
+    expect(compare.variants.map((variant) => variant.variantId)).toEqual(["hook-a", "hook-b"]);
+  });
+});
+
 describe("longgu context CLI", () => {
   it("builds a chapter context pack", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-context-"));

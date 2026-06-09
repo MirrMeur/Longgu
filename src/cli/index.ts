@@ -7,6 +7,13 @@ import { auditChapter } from "../core/audit.js";
 import { createBookPlanDraft, createChaptersPlanDraft, createVolumePlanDraft } from "../core/bookPlan.js";
 import { loadLongguConfig } from "../core/config.js";
 import { buildChapterContext } from "../core/context.js";
+import {
+  compareExperiment,
+  createExperiment,
+  ExperimentSortKeySchema,
+  registerExperimentVariant,
+  scoreExperimentVariant
+} from "../core/experiments.js";
 import { writeChapter } from "../core/generation.js";
 import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
 import { listModelProfiles } from "../core/modelRouting.js";
@@ -20,7 +27,7 @@ const program = new Command();
 program
   .name("longgu")
   .description("龙骨 Longgu: 中文网文创作工程化 Harness")
-  .version("0.8.0");
+  .version("0.9.0");
 
 program
   .command("init")
@@ -130,6 +137,109 @@ cost
       for (const item of report.byModel) {
         console.log(`${item.id}\t${item.runs} run(s)\tinput=${item.inputTokens}\toutput=${item.outputTokens}\tcost=${item.estimatedCost}`);
       }
+    });
+  });
+
+const experiment = program.command("experiment").description("Manage Longgu experiments");
+experiment
+  .command("create")
+  .description("Create a V0.9 experiment manifest")
+  .requiredOption("--id <id>", "experiment id, e.g. opening-ab")
+  .requiredOption("--goal <goal>", "experiment goal")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; goal: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await createExperiment({ workspaceDir, id: options.id, goal: options.goal });
+      console.log(`Experiment manifest: ${result.manifestPath}`);
+      console.log(`Goal: ${result.manifest.goal}`);
+    });
+  });
+
+experiment
+  .command("run")
+  .description("Register a local Markdown candidate as an experiment variant")
+  .requiredOption("--id <id>", "experiment id")
+  .requiredOption("--variant <id>", "variant id")
+  .requiredOption("--input <path>", "candidate Markdown input path")
+  .option("--model <profile>", "model profile label", "manual")
+  .option("--run-id <id>", "optional run id to link")
+  .option("--audit <path>", "optional audit JSON path to link")
+  .option("--cost <number>", "estimated cost override", parseNonNegativeNumber)
+  .argument("[dir]", "workspace directory", ".")
+  .action(
+    async (
+      dir: string,
+      options: { id: string; variant: string; input: string; model: string; runId?: string; audit?: string; cost?: number }
+    ) => {
+      await runCli(async () => {
+        const workspaceDir = path.resolve(dir);
+        await checkWorkspace(workspaceDir);
+        const result = await registerExperimentVariant({
+          workspaceDir,
+          experimentId: options.id,
+          variantId: options.variant,
+          inputPath: options.input,
+          modelProfile: options.model,
+          runId: options.runId,
+          auditFile: options.audit,
+          estimatedCost: options.cost
+        });
+        console.log(`Variant output: ${result.outputPath}`);
+        console.log(`Variant metadata: ${result.metadataPath}`);
+      });
+    }
+  );
+
+experiment
+  .command("score")
+  .description("Write human scores for an experiment variant")
+  .requiredOption("--id <id>", "experiment id")
+  .requiredOption("--variant <id>", "variant id")
+  .requiredOption("--payoff <number>", "payoff score 0-10", parseScore)
+  .requiredOption("--hook <number>", "hook score 0-10", parseScore)
+  .requiredOption("--ai-flavor <number>", "AI flavor score 0-10; lower is better", parseScore)
+  .option("--setting-conflict <number>", "setting conflict score 0-10; lower is better", parseScore)
+  .option("--note <text>", "human note", "")
+  .argument("[dir]", "workspace directory", ".")
+  .action(
+    async (
+      dir: string,
+      options: { id: string; variant: string; payoff: number; hook: number; aiFlavor: number; settingConflict?: number; note: string }
+    ) => {
+      await runCli(async () => {
+        const workspaceDir = path.resolve(dir);
+        await checkWorkspace(workspaceDir);
+        const result = await scoreExperimentVariant({
+          workspaceDir,
+          experimentId: options.id,
+          variantId: options.variant,
+          payoff: options.payoff,
+          hook: options.hook,
+          aiFlavor: options.aiFlavor,
+          settingConflict: options.settingConflict,
+          note: options.note
+        });
+        console.log(`Variant scores: ${result.scorePath}`);
+      });
+    }
+  );
+
+experiment
+  .command("compare")
+  .description("Compare experiment variants")
+  .requiredOption("--id <id>", "experiment id")
+  .option("--sort <key>", "sort key: payoff, hook, ai-flavor, setting-conflict, cost", parseExperimentSortKey)
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; sort?: ReturnType<typeof parseExperimentSortKey> }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await compareExperiment({ workspaceDir, experimentId: options.id, sort: options.sort });
+      console.log(`Compare JSON: ${result.jsonPath}`);
+      console.log(`Compare Markdown: ${result.markdownPath}`);
+      console.log(`Variants: ${result.compare.variants.length}`);
     });
   });
 
@@ -436,4 +546,24 @@ function parsePositiveInteger(value: string): number {
     throw new Error("--max-tokens must be a positive integer.");
   }
   return parsed;
+}
+
+function parseNonNegativeNumber(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error("Value must be a non-negative number.");
+  }
+  return parsed;
+}
+
+function parseScore(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10) {
+    throw new Error("Score must be a number from 0 to 10.");
+  }
+  return parsed;
+}
+
+function parseExperimentSortKey(value: string) {
+  return ExperimentSortKeySchema.parse(value);
 }

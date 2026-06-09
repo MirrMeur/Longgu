@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-项目处于 V0.8 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry、单章上下文包，并加入模型路由与成本估算。
+项目处于 V0.9 阶段：已具备最小 CLI Harness、小说规格与规划流程、长篇状态账本、章节审计质量门禁、第一版写审改闭环、中文网文类型卡 registry、单章上下文包、模型路由与成本估算，并加入本地实验评测闭环。
 
 已具备：
 
@@ -31,6 +31,10 @@
 - `longgu context build --chapter 001 --max-tokens 4000`：按估算 token 预算构建上下文，低优先级来源会先被裁剪，关键状态仍保留。
 - `longgu model list`：列出已配置模型 profile、成本参数和任务路由。
 - `longgu cost report`：汇总 run metadata 中的 token 与估算成本。
+- `longgu experiment create --id opening-ab --goal "测试开篇钩子"`：创建实验 manifest。
+- `longgu experiment run --id opening-ab --variant hook-a --input drafts/hook-a.md`：登记本地候选稿为实验 variant。
+- `longgu experiment score --id opening-ab --variant hook-a --payoff 8 --hook 9 --ai-flavor 2`：回写人工评分。
+- `longgu experiment compare --id opening-ab --sort hook`：聚合并排序实验报告。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
@@ -48,6 +52,7 @@
 - 上下文包来源包括当前章节卡、分卷规划、状态账本、近期章节摘要、类型卡和 `bible/style.md`；预算不足时优先裁剪低优先级来源，`critical` 状态和章节卡不会被裁剪。
 - 模型配置：兼容旧 `provider`，并支持可选 `models`、`routes`、`fallback`、`importantModel` 与 per-1K token 成本参数。
 - run metadata：生成记录包含 `task`、`modelProfile`、`fallbackAttempts`、`inputTokens`、`outputTokens`、`estimatedCost` 和 `durationMs`。
+- 实验目录：`experiments/<id>/`，当前输出 `manifest.json`、`variants/<variant>/output.md`、`metadata.json`、`scores.json`、`compare.json` 与 `compare.md`。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖
@@ -114,6 +119,8 @@ proposal -> specs -> design -> tasks -> implementation -> validation -> archive
 - `openspec/specs/chapter-revision/spec.md`
 - `openspec/specs/genre-cards/spec.md`
 - `openspec/specs/context-builder/spec.md`
+- `openspec/specs/model-routing-cost/spec.md`
+- `openspec/specs/experiments/spec.md`
 
 ## 品牌与包名
 
