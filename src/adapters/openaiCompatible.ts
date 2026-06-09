@@ -11,11 +11,19 @@ export interface GenerateResult {
 }
 
 export async function checkOpenAICompatible(config: LongguConfig, apiKey: string): Promise<void> {
-  const endpoint = new URL("models", ensureTrailingSlash(config.provider.baseUrl));
+  const endpoint = new URL("chat/completions", ensureTrailingSlash(config.provider.baseUrl));
   const response = await fetch(endpoint, {
+    method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`
-    }
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: config.provider.model,
+      messages: [{ role: "user", content: "Reply with OK." }],
+      temperature: 0,
+      max_tokens: 1
+    })
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Provider connectivity check failed: ${message}`);
@@ -38,7 +46,7 @@ export async function generateWithOpenAICompatible(request: GenerateRequest): Pr
       model: request.config.provider.model,
       messages: [{ role: "user", content: request.prompt }],
       temperature: request.config.provider.temperature,
-      max_tokens: request.config.provider.maxTokens
+      max_tokens: resolveRequestMaxTokens(request.config.provider.model, request.config.provider.maxTokens)
     })
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -51,10 +59,16 @@ export async function generateWithOpenAICompatible(request: GenerateRequest): Pr
   }
 
   const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
   };
-  const text = data.choices?.[0]?.message?.content;
+  const message = data.choices?.[0]?.message;
+  const text = message?.content;
   if (!text) {
+    if (message?.reasoning_content) {
+      throw new Error(
+        `Provider generation failed: empty response content after reasoning output. This looks like a reasoning model exhausted its output budget; increase provider.maxTokens above ${request.config.provider.maxTokens}.`
+      );
+    }
     throw new Error("Provider generation failed: empty response content");
   }
   return { text };
@@ -62,4 +76,15 @@ export async function generateWithOpenAICompatible(request: GenerateRequest): Pr
 
 function ensureTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function resolveRequestMaxTokens(model: string, configuredMaxTokens: number): number {
+  return isLikelyReasoningModel(model) ? Math.ceil(configuredMaxTokens * 1.5) : configuredMaxTokens;
+}
+
+function isLikelyReasoningModel(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return ["reasoning", "thinking", "deepseek-r", "deepseek-v4", "r1", "kimi-k2", "o1", "o3", "o4"].some((marker) =>
+    normalized.includes(marker)
+  );
 }

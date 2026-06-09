@@ -24,6 +24,28 @@ provider:
     expect(config.provider.name).toBe("openai-compatible");
     expect(config.provider.model).toBe("test-model");
     expect(config.language).toBe("zh-CN");
+    expect(config.context!.maxTokens).toBe(16000);
+  });
+
+  it("loads configured context defaults", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-config-"));
+    await writeFile(
+      path.join(dir, "longgu.yaml"),
+      `title: 测试小说
+genre: 玄幻
+context:
+  maxTokens: 24000
+provider:
+  baseUrl: https://api.example.com/v1
+  model: test-model
+  apiKeyEnv: TEST_API_KEY
+`,
+      "utf8"
+    );
+
+    const config = await loadLongguConfig(dir);
+
+    expect(config.context!.maxTokens).toBe(24000);
   });
 
   it("rejects missing provider fields", async () => {

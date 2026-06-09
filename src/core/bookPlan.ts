@@ -264,18 +264,7 @@ export async function createChaptersPlanDraft(input: {
     genre: volumePlan.genre,
     volumePlanSource,
     chapterCount: volumePlan.chapterSeedCount,
-    chapters: Array.from({ length: volumePlan.chapterSeedCount }, (_, index) => {
-      const chapterNumber = String(index + 1).padStart(3, "0");
-      return {
-        chapterId: `${volumeId}-${chapterNumber}`,
-        title: `第${chapterNumber}章`,
-        goal: "",
-        conflict: "",
-        payoff: "",
-        informationGain: "",
-        endingHook: ""
-      };
-    }),
+    chapters: createChapterCards(volumePlan),
     sourceFiles: [volumePlanSource, ...volumePlan.sourceFiles],
     sourceDigest: [
       {
@@ -290,6 +279,37 @@ export async function createChaptersPlanDraft(input: {
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
   return { draft, outputPath, overwritten: exists };
+}
+
+function createChapterCards(volumePlan: VolumePlanDraft): ChaptersPlanDraft["chapters"] {
+  return Array.from({ length: volumePlan.chapterSeedCount }, (_, index) => {
+    const chapterNumber = String(index + 1).padStart(3, "0");
+    const stage = resolveConflictStage(volumePlan, index);
+    const resourceChange = volumePlan.resourceChanges[index % Math.max(volumePlan.resourceChanges.length, 1)];
+    const keyPayoff = volumePlan.keyPayoffs[index % Math.max(volumePlan.keyPayoffs.length, 1)];
+    const finalChapter = index === volumePlan.chapterSeedCount - 1;
+    return {
+      chapterId: `${volumePlan.volumeId}-${chapterNumber}`,
+      title: `第${chapterNumber}章 ${stage.step}推进`,
+      goal: `${volumePlan.volumeGoal || volumePlan.title}：完成第 ${index + 1} 个推进节点。`,
+      conflict: stage.pressure || `${volumePlan.primaryAntagonist || "对手势力"}制造阻力，逼主角做出选择。`,
+      payoff: stage.expectedPayoff || keyPayoff || "让主角获得一次明确进展，并兑现本章爽点。",
+      informationGain: resourceChange
+        ? `${resourceChange.resource} 从「${resourceChange.from}」变化到「${resourceChange.to}」，暴露新的规则或代价。`
+        : `${volumePlan.primaryAntagonist || "对手"}的真实压力来源进一步显露。`,
+      endingHook: finalChapter
+        ? volumePlan.endingHook || "卷尾钩子抛出下一阶段更高压力。"
+        : `章尾留下与「${volumePlan.endingHook || volumePlan.volumeGoal || volumePlan.title}」相关的升级信号。`
+    };
+  });
+}
+
+function resolveConflictStage(volumePlan: VolumePlanDraft, index: number): VolumePlanDraft["conflictEscalation"][number] {
+  if (volumePlan.conflictEscalation.length === 0) {
+    return { step: "阶段", pressure: "", expectedPayoff: "" };
+  }
+  const stageIndex = Math.min(volumePlan.conflictEscalation.length - 1, Math.floor((index / volumePlan.chapterSeedCount) * volumePlan.conflictEscalation.length));
+  return volumePlan.conflictEscalation[stageIndex];
 }
 
 export async function loadBookPlanDraft(filePath: string): Promise<BookPlanDraft> {

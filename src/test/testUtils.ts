@@ -19,6 +19,8 @@ provider:
   apiKeyEnv: TEST_NOVEL_API_KEY
   temperature: 0.7
   maxTokens: 1200
+context:
+  maxTokens: 16000
 `,
     "utf8"
   );
@@ -147,6 +149,8 @@ provider:
   apiKeyEnv: LEGACY_API_KEY
   temperature: 0.7
   maxTokens: 1200
+context:
+  maxTokens: 16000
 models:
   fast:
     provider:

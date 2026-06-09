@@ -26,6 +26,7 @@ describe("longgu stable CLI discovery", () => {
       "plan",
       "model",
       "cost",
+      "feedback",
       "genre",
       "context",
       "experiment",
@@ -61,11 +62,13 @@ describe("longgu plan CLI", () => {
 
     expect(volumeResult.stdout).toContain("Volume plan draft:");
     expect(volumeResult.stdout).toContain("Status: created");
+    expect(volumeResult.stdout).toContain("Next: review outlines/volume-001.draft.json");
     await expect(readFile(path.join(dir, "outlines", "volume-001.draft.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.volume-plan-draft.v0.2\""
     );
     expect(chaptersResult.stdout).toContain("Chapters plan draft:");
     expect(chaptersResult.stdout).toContain("Status: created");
+    expect(chaptersResult.stdout).toContain("Next: review chapter cards");
     await expect(readFile(path.join(dir, "outlines", "chapters-001.draft.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.chapters-plan-draft.v0.2\""
     );
@@ -144,6 +147,24 @@ describe("longgu model and cost CLI", () => {
     expect(result.stdout).toContain("Estimated cost: 0.025");
     expect(result.stdout).toContain("drafting\t1 run(s)");
     expect(result.stdout).toContain("strong\t1 run(s)");
+  });
+});
+
+describe("longgu feedback CLI", () => {
+  it("records chapter feedback", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-feedback-"));
+    await createFixtureWorkspace(dir);
+
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "feedback", "chapter", "--id", "001", "--score", "6", "--comment", "情节推进太慢", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(result.stdout).toContain("Feedback file:");
+    expect(result.stdout).toContain("Entries: 1");
+    expect(result.stdout).toContain("Next: run longgu context build --chapter 001");
+    await expect(readFile(path.join(dir, "feedback", "001.feedback.json"), "utf8")).resolves.toContain("情节推进太慢");
   });
 });
 
@@ -281,6 +302,7 @@ describe("longgu context CLI", () => {
     expect(result.stdout).toContain("Context JSON:");
     expect(result.stdout).toContain("Context Markdown:");
     expect(result.stdout).toContain("Included sections:");
+    expect(result.stdout).toContain("Next: inspect context/001.context.md");
     await expect(readFile(path.join(dir, "context", "001.context.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.context-pack.v0.7\""
     );

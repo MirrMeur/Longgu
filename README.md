@@ -38,13 +38,17 @@ node dist/cli/index.js --help
 npm run dev:cli -- --help
 ```
 
-## 快速开始
+## 10 分钟从零写一章
+
+下面是一条最短可审查流程，适合新项目先跑通一章。
 
 初始化一个小说工作区：
 
 ```bash
 node dist/cli/index.js init ./my-novel
 ```
+
+编辑 `./my-novel/longgu.yaml`，把 `provider.baseUrl`、`provider.model` 和 `provider.apiKeyEnv` 改成你的模型配置；再补充 `bible/premise.md`、`bible/characters.md`、`bible/world.md`、`bible/style.md`。第一轮不需要写很长，但至少写清主角、世界规则、开篇冲突和文风禁忌。
 
 检查工作区、配置和模型连接：
 
@@ -60,6 +64,8 @@ node dist/cli/index.js plan volume --id 001 ./my-novel
 node dist/cli/index.js plan chapters --volume 001 ./my-novel
 ```
 
+每一步都会写入 `outlines/*.draft.json`。继续前先打开这些文件看一遍：不满意就直接编辑 JSON，再进入下一步。
+
 初始化状态账本并生成章节上下文：
 
 ```bash
@@ -73,8 +79,11 @@ node dist/cli/index.js context build --chapter 001 ./my-novel
 node dist/cli/index.js write chapter --id 001 ./my-novel
 node dist/cli/index.js audit chapter --id 001 ./my-novel
 node dist/cli/index.js revise chapter --id 001 ./my-novel
+node dist/cli/index.js feedback chapter --id 001 --score 7 --comment "节奏比初稿好，但章尾钩子还弱" ./my-novel
 node dist/cli/index.js settle chapter --id 001 ./my-novel
 ```
+
+生成后建议先读 `chapters/001.md`，再看 `audits/001.audit.md`。如果审计阻断或问题较多，先运行 `revise chapter` 或手动改章节；也可以用 `feedback chapter` 记录人工评价，让后续 context pack 带上这些偏好。满意后再 `settle chapter` 写入状态账本。
 
 查看模型和成本：
 
@@ -92,6 +101,20 @@ node dist/cli/index.js experiment run --id opening-ab --variant hook-a --input d
 node dist/cli/index.js experiment score --id opening-ab --variant hook-a --payoff 8 --hook 9 --ai-flavor 2 ./my-novel
 node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
 ```
+
+## 能力状态
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| 工作区初始化、配置校验、doctor | 可用 | doctor 使用极简 chat completion 检查 provider 连通性 |
+| 书籍/分卷/章节规划 | 部分实现 | 当前为可编辑 deterministic draft，不是完整 LLM 规划器 |
+| 单章写作 | 可用 | 使用 context pack、章节卡和历史章节上下文生成 |
+| 上下文包 | 可用 | 支持 `context.maxTokens` 和 `--max-tokens` 覆盖 |
+| 状态账本 | 部分实现 | 支持初始化、inspect、delta settle |
+| 审计与修订 | 部分实现 | 支持结构化审计/修订记录，质量仍依赖模型和人工复核 |
+| 模型路由与成本 | 部分实现 | drafting 支持路由/fallback/important，其他任务逐步接入 |
+| 实验评测 | 部分实现 | 支持登记候选稿和人工评分对比 |
+| Claude Code/宿主 LLM 集成 | 规划中 | 独立方向，当前 CLI 仍使用配置的 provider |
 
 ## 常用命令
 
@@ -115,6 +138,7 @@ node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
 | `longgu cost report` | 汇总 run 成本估算 |
 | `longgu experiment create` | 创建实验 |
 | `longgu experiment compare` | 生成实验对比报告 |
+| `longgu feedback chapter --id 001` | 记录章节人工反馈 |
 | `longgu run show` | 查看最近一次运行记录 |
 
 ## 工作区结构
@@ -171,7 +195,13 @@ provider:
   apiKeyEnv: OPENAI_API_KEY
   temperature: 0.8
   maxTokens: 3000
+context:
+  maxTokens: 16000
 ```
+
+`provider.maxTokens` 控制单次模型输出预算。使用 reasoning model 时，如果看到“reasoning output”相关错误，优先提高这个值。
+
+`context.maxTokens` 控制 context pack 的默认输入预算；命令行 `longgu context build --chapter 001 --max-tokens 24000` 会覆盖配置值。
 
 也可以配置多个模型 profile 和任务路由：
 

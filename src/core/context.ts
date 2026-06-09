@@ -8,6 +8,7 @@ import {
   type VolumePlanDraft
 } from "./bookPlan.js";
 import { loadLongguConfig } from "./config.js";
+import { loadChapterFeedback } from "./feedback.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { loadStateLedger, stateLedgerFiles } from "./state.js";
 import { loadBibleContext, pathExists } from "./workspace.js";
@@ -71,7 +72,8 @@ export async function buildChapterContext(input: {
   maxTokens?: number;
   now?: Date;
 }): Promise<BuildChapterContextResult> {
-  const tokenBudget = input.maxTokens ?? 4000;
+  const config = await loadLongguConfig(input.workspaceDir);
+  const tokenBudget = input.maxTokens ?? config.context?.maxTokens ?? 16000;
   if (!Number.isInteger(tokenBudget) || tokenBudget <= 0) {
     throw new Error("--max-tokens must be a positive integer.");
   }
@@ -134,6 +136,7 @@ async function collectContextCandidates(workspaceDir: string, chapterId: string)
   const volumePlan = chapterPlan ? await findVolumePlan(workspaceDir, chapterPlan.plan.volumeId) : null;
   const summaries = await loadChapterSummaries(workspaceDir, chapterId);
   const previousChapters = await loadPreviousChapterBodies(workspaceDir, chapterId);
+  const feedbackSections = await loadFeedbackSections(workspaceDir, chapterId);
   const bibleSections = await loadBibleSections(workspaceDir);
   const stateSections = await loadStateSections(workspaceDir);
   const styleSection = await loadStyleSection(workspaceDir);
@@ -189,6 +192,7 @@ async function collectContextCandidates(workspaceDir: string, chapterId: string)
   candidates.push(...stateSections);
   candidates.push(...summaries);
   candidates.push(...previousChapters);
+  candidates.push(...feedbackSections);
   return candidates;
 }
 
@@ -288,6 +292,17 @@ async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string
       priority: "low",
       content: chapter.content
     }));
+}
+
+async function loadFeedbackSections(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {
+  const feedbackItems = await loadChapterFeedback(workspaceDir, chapterId);
+  return feedbackItems.slice(-5).map(({ file, feedback }) => ({
+    id: `feedback-${feedback.chapterId}`,
+    source: file,
+    reason: `章节 ${feedback.chapterId} 的人工反馈，用于避免重复质量问题并延续用户偏好。`,
+    priority: "medium",
+    content: JSON.stringify(feedback, null, 2)
+  }));
 }
 
 async function loadStateSections(workspaceDir: string): Promise<ContextCandidate[]> {

@@ -187,15 +187,23 @@ describe("createChaptersPlanDraft", () => {
     expect(result.draft.volumePlanSource).toBe("outlines/volume-001.draft.json");
     expect(result.draft.chapterCount).toBe(12);
     expect(result.draft.chapters).toHaveLength(12);
-    expect(result.draft.chapters[0]).toEqual({
+    expect(result.draft.chapters[0]).toMatchObject({
       chapterId: "001-001",
-      title: "第001章",
-      goal: "",
-      conflict: "",
-      payoff: "",
-      informationGain: "",
-      endingHook: ""
+      title: expect.stringContaining("第001章"),
+      goal: expect.stringContaining("测试小说 第001卷"),
+      conflict: expect.any(String),
+      payoff: expect.any(String),
+      informationGain: expect.any(String),
+      endingHook: expect.any(String)
     });
+    for (const chapter of result.draft.chapters) {
+      expect(chapter.title).not.toBe("");
+      expect(chapter.goal).not.toBe("");
+      expect(chapter.conflict).not.toBe("");
+      expect(chapter.payoff).not.toBe("");
+      expect(chapter.informationGain).not.toBe("");
+      expect(chapter.endingHook).not.toBe("");
+    }
     expect(result.draft.sourceFiles).toContain("outlines/volume-001.draft.json");
 
     const saved = await loadChaptersPlanDraft(result.outputPath);

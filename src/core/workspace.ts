@@ -19,6 +19,8 @@ provider:
   apiKeyEnv: OPENAI_API_KEY
   temperature: 0.8
   maxTokens: 3000
+context:
+  maxTokens: 16000
 `,
   "bible/premise.md": `# Premise
 

@@ -28,20 +28,28 @@ export const ModelRouteSchema = z.object({
   importantModel: z.string().min(1).optional()
 });
 
+export const ContextConfigSchema = z.object({
+  maxTokens: z.number().int().positive().default(16000)
+});
+
 export const LongguConfigSchema = z.object({
   title: z.string().min(1),
   genre: z.string().min(1),
   language: z.string().default("zh-CN"),
   provider: ProviderConfigSchema,
+  context: ContextConfigSchema.default({ maxTokens: 16000 }),
   models: z.record(z.string().min(1), ModelProfileSchema).optional(),
   routes: z.record(z.string().min(1), ModelRouteSchema).optional()
 });
 
-export type LongguConfig = z.infer<typeof LongguConfigSchema>;
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type ModelCost = z.infer<typeof ModelCostSchema>;
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 export type ModelRoute = z.infer<typeof ModelRouteSchema>;
+export type ContextConfig = z.infer<typeof ContextConfigSchema>;
+export type LongguConfig = Omit<z.infer<typeof LongguConfigSchema>, "context"> & {
+  context?: ContextConfig;
+};
 
 export async function loadLongguConfig(workspaceDir: string): Promise<LongguConfig> {
   const configPath = path.join(workspaceDir, "longgu.yaml");

@@ -74,6 +74,7 @@ The system SHALL validate generated planning drafts against structured schemas b
 - **WHEN** the system creates a chapters draft
 - **THEN** the draft contains `schemaVersion`, `status`, `volumeId`, `genre`, `volumePlanSource`, `chapterCount`, `chapters`, `sourceFiles`, and `generatedAt`
 - **THEN** each chapter card contains `chapterId`, `title`, `goal`, `conflict`, `payoff`, `informationGain`, and `endingHook`
+- **THEN** each chapter card field is non-empty
 - **THEN** `status` is `draft`
 
 #### Scenario: Draft contains V0.2 planning fields

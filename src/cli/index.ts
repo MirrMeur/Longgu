@@ -14,6 +14,7 @@ import {
   registerExperimentVariant,
   scoreExperimentVariant
 } from "../core/experiments.js";
+import { recordChapterFeedback } from "../core/feedback.js";
 import { writeChapter } from "../core/generation.js";
 import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
 import { listModelProfiles } from "../core/modelRouting.js";
@@ -44,6 +45,7 @@ program
       if (result.existing.length > 0) {
         console.log(`Existing files kept: ${result.existing.join(", ")}`);
       }
+      console.log("Next: edit longgu.yaml and bible/*.md, then run longgu doctor.");
     });
   });
 
@@ -59,6 +61,7 @@ program
       const apiKey = readApiKey(config.provider.apiKeyEnv);
       await checkOpenAICompatible(config, apiKey);
       console.log("Doctor passed: structure, config, API key, and provider connectivity are ready.");
+      console.log("Next: run longgu plan book, or continue with an existing outline.");
     });
   });
 
@@ -82,6 +85,7 @@ write
       });
       console.log(`Generated chapter: ${result.chapterPath}`);
       console.log(`Run record: ${result.runDir}`);
+      console.log(`Next: review chapters/${options.id}.md, then run longgu audit chapter --id ${options.id}.`);
     });
   });
 
@@ -137,6 +141,30 @@ cost
       for (const item of report.byModel) {
         console.log(`${item.id}\t${item.runs} run(s)\tinput=${item.inputTokens}\toutput=${item.outputTokens}\tcost=${item.estimatedCost}`);
       }
+    });
+  });
+
+const feedback = program.command("feedback").description("Record human feedback for Longgu artifacts");
+feedback
+  .command("chapter")
+  .description("Record human feedback for a chapter")
+  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .requiredOption("--score <number>", "human score 0-10", parseScore)
+  .requiredOption("--comment <text>", "human feedback comment")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string; score: number; comment: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await recordChapterFeedback({
+        workspaceDir,
+        chapterId: options.id,
+        score: options.score,
+        comment: options.comment
+      });
+      console.log(`Feedback file: ${result.outputPath}`);
+      console.log(`Entries: ${result.feedback.entries.length}`);
+      console.log(`Next: run longgu context build --chapter ${options.id} to include feedback in future generation context.`);
     });
   });
 
@@ -256,6 +284,7 @@ plan
       const result = await createBookPlanDraft({ workspaceDir, force: options.force });
       console.log(`Book plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+      console.log("Next: review outlines/book.draft.json, then run longgu plan volume --id 001.");
     });
   });
 
@@ -276,6 +305,7 @@ plan
       });
       console.log(`Volume plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+      console.log(`Next: review outlines/volume-${options.id}.draft.json, then run longgu plan chapters --volume ${options.id}.`);
     });
   });
 
@@ -296,6 +326,7 @@ plan
       });
       console.log(`Chapters plan draft: ${result.outputPath}`);
       console.log(`Status: ${result.overwritten ? "replaced" : "created"}`);
+      console.log(`Next: review chapter cards, then run longgu context build --chapter ${options.volume}-001.`);
     });
   });
 
@@ -337,6 +368,7 @@ context
       console.log(`Context Markdown: ${result.markdownPath}`);
       console.log(`Included sections: ${result.pack.includedSectionCount}/${result.pack.sections.length}`);
       console.log(`Estimated tokens: ${result.pack.estimatedTokens}/${result.pack.tokenBudget}`);
+      console.log(`Next: inspect ${path.relative(workspaceDir, result.markdownPath)}, then run longgu write chapter --id ${options.chapter}.`);
     });
   });
 
@@ -386,6 +418,7 @@ state
       if (result.overwritten.length > 0) {
         console.log(`Overwritten: ${result.overwritten.join(", ")}`);
       }
+      console.log("Next: run longgu state inspect after chapters are settled.");
     });
   });
 
@@ -433,6 +466,7 @@ settle
           `${diff.ledger}: ${changed} touched, ${diff.added.length} added, ${diff.updated.length} updated, ${diff.unchanged.length} unchanged`
         );
       }
+      console.log("Next: run longgu state inspect to review updated ledgers.");
     });
   });
 
@@ -465,6 +499,7 @@ audit
       console.log(`Blocked: ${result.audit.blocked}`);
       console.log(`Critical: ${criticalCount}`);
       console.log(`Warning: ${warningCount}`);
+      console.log(`Next: review ${path.relative(workspaceDir, result.markdownPath)}, then run longgu revise chapter --id ${options.id}.`);
     });
   });
 
@@ -498,6 +533,7 @@ revise
       console.log(`Mode: ${result.metadata.mode}`);
       console.log(`Selected issues: ${result.metadata.selectedIssueIds.length}`);
       console.log(`Diff: ${result.diffPath}`);
+      console.log(`Next: review ${path.relative(workspaceDir, result.diffPath)}, then run longgu audit chapter --id ${options.id}.`);
     });
   });
 

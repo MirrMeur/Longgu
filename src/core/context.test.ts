@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ describe("chapter context builder", () => {
 
     expect(result.pack.schemaVersion).toBe("longgu.context-pack.v0.7");
     expect(result.pack.chapterId).toBe("001");
+    expect(result.pack.tokenBudget).toBe(16000);
     expect(result.pack.includedSectionCount).toBeGreaterThan(0);
     expect(result.pack.sections.map((section) => section.id)).toEqual(
       expect.arrayContaining([
@@ -68,6 +69,39 @@ describe("chapter context builder", () => {
     expect(result.pack.estimatedTokens).toBeGreaterThan(result.pack.tokenBudget);
   });
 
+  it("uses configured context budget when no CLI override is provided", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-config-budget-"));
+    await createPlanningStateFixture(dir);
+    const configPath = path.join(dir, "longgu.yaml");
+    const config = await readFile(configPath, "utf8");
+    await writeFile(configPath, config.replace("maxTokens: 16000", "maxTokens: 24000"), "utf8");
+
+    const result = await buildChapterContext({
+      workspaceDir: dir,
+      chapterId: "001",
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    expect(result.pack.tokenBudget).toBe(24000);
+  });
+
+  it("uses explicit max token override before config defaults", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-override-budget-"));
+    await createPlanningStateFixture(dir);
+    const configPath = path.join(dir, "longgu.yaml");
+    const config = await readFile(configPath, "utf8");
+    await writeFile(configPath, config.replace("maxTokens: 16000", "maxTokens: 24000"), "utf8");
+
+    const result = await buildChapterContext({
+      workspaceDir: dir,
+      chapterId: "001",
+      maxTokens: 200,
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    expect(result.pack.tokenBudget).toBe(200);
+  });
+
   it("includes previous chapter bodies but excludes the target chapter body", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-previous-chapter-"));
     await createPlanningStateFixture(dir);
@@ -88,5 +122,35 @@ describe("chapter context builder", () => {
     });
     expect(previous?.content).toContain("陆沉拿到测试资格");
     expect(result.pack.sections.find((section) => section.id === "previous-chapter-002")).toBeUndefined();
+  });
+
+  it("includes human feedback in context packs", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-feedback-"));
+    await createPlanningStateFixture(dir);
+    await mkdir(path.join(dir, "feedback"), { recursive: true });
+    await writeFile(
+      path.join(dir, "feedback", "001.feedback.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-feedback.v0.10",
+          chapterId: "001",
+          entries: [{ score: 6, comment: "情节推进太慢", createdAt: "2026-06-09T10:00:00.000Z" }],
+          updatedAt: "2026-06-09T10:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await buildChapterContext({
+      workspaceDir: dir,
+      chapterId: "002",
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    const feedback = result.pack.sections.find((section) => section.id === "feedback-001");
+    expect(feedback).toMatchObject({ source: "feedback/001.feedback.json", priority: "medium", included: true });
+    expect(feedback?.content).toContain("情节推进太慢");
   });
 });

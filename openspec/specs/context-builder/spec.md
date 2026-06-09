@@ -23,6 +23,15 @@ The system SHALL validate context packs against a V0.7 schema.
 - **WHEN** a context section is written
 - **THEN** it contains `id`, `source`, `reason`, `priority`, `estimatedTokens`, `included`, and `content`
 
+#### Scenario: Default context budget
+- **WHEN** a context pack is built without an explicit `--max-tokens` override
+- **THEN** the token budget defaults to the configured `context.maxTokens`
+- **THEN** if no config value is present, the token budget defaults to 16000
+
+#### Scenario: CLI context budget override
+- **WHEN** a user runs `longgu context build --chapter 001 --max-tokens 200`
+- **THEN** the context pack token budget is 200 regardless of `longgu.yaml` defaults
+
 ### Requirement: Context sources
 The system SHALL include available local context sources relevant to the target chapter.
 
@@ -34,6 +43,10 @@ The system SHALL include available local context sources relevant to the target 
 - **WHEN** `chapters/<previous-id>.md` exists before the target chapter id
 - **THEN** the context pack may include the previous chapter body as low-priority continuity context
 - **THEN** the target chapter body is not included in its own context pack
+
+#### Scenario: Human feedback source selection
+- **WHEN** chapter feedback files exist under `feedback/`
+- **THEN** the context builder considers the feedback for the context pack
 
 ### Requirement: Explainable context
 The system SHALL explain why each context section was selected.
@@ -60,4 +73,3 @@ The system SHALL create a readable Markdown projection of included context secti
 #### Scenario: Markdown context
 - **WHEN** a context pack is built
 - **THEN** `context/<chapter-id>.context.md` contains included section headings, source paths, reasons, and content
-

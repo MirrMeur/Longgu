@@ -31,7 +31,7 @@ The system SHALL initialize a Longgu novel workspace with the minimum file and d
 - **THEN** missing `state/` is reported as a missing workspace path
 
 ### Requirement: Novel configuration schema
-The system SHALL validate `longgu.yaml` against a V0.1 schema that supports one OpenAI-compatible provider.
+The system SHALL validate `longgu.yaml` against a schema that supports provider and workflow defaults.
 
 #### Scenario: Valid provider configuration
 - **WHEN** `longgu.yaml` contains provider base URL, model name, API key environment variable name, and generation defaults
@@ -41,19 +41,29 @@ The system SHALL validate `longgu.yaml` against a V0.1 schema that supports one 
 - **WHEN** `longgu.yaml` is missing a required provider field
 - **THEN** the system reports the missing field with a clear error message
 
+#### Scenario: Context budget configuration
+- **WHEN** `longgu.yaml` contains `context.maxTokens`
+- **THEN** the configuration validates successfully
+- **THEN** context building can use that value when no CLI override is supplied
+
 ### Requirement: Doctor checks workspace and provider readiness
 The system SHALL provide `longgu doctor` to check workspace structure, configuration validity, API key availability, and model connectivity.
 
 #### Scenario: Workspace is ready
 - **WHEN** a user runs `longgu doctor` in a valid configured workspace with reachable provider settings
-- **THEN** the system reports that file structure, configuration, API key, and model connectivity checks pass
+- **THEN** the system checks provider connectivity through a minimal chat completion request
+- **THEN** the system reports that file structure, configuration, API key, and provider connectivity checks pass
 
 #### Scenario: Provider is not ready
 - **WHEN** a user runs `longgu doctor` with a missing API key or unreachable provider
 - **THEN** the system reports the exact failed check and exits with a non-zero status
 
+#### Scenario: Provider model listing is unavailable
+- **WHEN** a provider supports `POST /chat/completions` but does not support `GET /models`
+- **THEN** `longgu doctor` succeeds if the minimal chat completion check succeeds
+
 ### Requirement: Chapter generation from base inputs
-The system SHALL provide `longgu write chapter --id <id>` to generate a chapter from the V0.1 base novel inputs and prompt template.
+The system SHALL provide `longgu write chapter --id <id>` to generate a chapter from the current Longgu workspace inputs and prompt template.
 
 #### Scenario: Generate first chapter
 - **WHEN** a user runs `longgu write chapter --id 001` in a valid workspace
@@ -72,6 +82,15 @@ The system SHALL provide `longgu write chapter --id <id>` to generate a chapter 
 - **THEN** the system reports a clear error message
 - **THEN** the system records the failed run details under `runs/`
 - **THEN** the system exits with a non-zero status
+
+#### Scenario: Reasoning model receives reserved output budget
+- **WHEN** the configured provider model name indicates a reasoning model
+- **THEN** the OpenAI-compatible adapter sends a larger request `max_tokens` than the configured `provider.maxTokens`
+
+#### Scenario: Reasoning model exhausts output budget
+- **WHEN** the provider response contains reasoning content but no final message content
+- **THEN** the system reports that the reasoning model may need a larger `provider.maxTokens`
+- **THEN** the failed run record contains the actionable error message
 
 ### Requirement: Persisted generation run records
 The system SHALL persist enough information for each generation run to be reviewed and reproduced.
