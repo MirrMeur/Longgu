@@ -6,17 +6,19 @@
 
 ## 当前状态
 
-项目处于 V0.1 阶段：最小可用 CLI Harness。
+项目处于 V0.2 阶段：已具备最小 CLI Harness，并开始落地小说规格与规划流程。
 
 已具备：
 
 - `longgu init`：初始化小说工作区。
 - `longgu doctor`：检查配置、API key、模型连接和文件结构。
 - `longgu write chapter --id 001`：根据基础设定生成单章。
+- `longgu plan book`：从当前配置和 `bible/` 输入生成开书规格草稿。
 - `longgu run show`：查看最近一次生成记录。
 - `longgu.yaml` 配置 schema。
 - OpenAI-compatible provider adapter。
 - 成功/失败 run record 落盘。
+- 规划目录：`outlines/`，当前输出 `outlines/book.draft.json`。
 - 示例项目：`examples/xuanhuan-demo/`。
 
 ## 安装依赖
@@ -56,7 +58,7 @@ src/
   cli/               # longgu CLI entry
   core/              # config, workspace, prompt, generation, run records
 examples/
-  xuanhuan-demo/     # V0.1 示例项目
+  xuanhuan-demo/     # 示例项目
 openspec/
   specs/             # 已归档规格
   changes/           # SDD 变更工作区
