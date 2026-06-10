@@ -8,7 +8,7 @@ The project README SHALL describe the current Longgu project for external reader
 
 #### Scenario: README focuses on current project
 - **WHEN** a reader opens `README.md`
-- **THEN** it introduces Longgu, current capabilities, installation, usage, project artifacts, and license
+- **THEN** it introduces Longgu, current capabilities, installation, usage, project artifacts, configuration, and license
 - **AND** it does not include internal SDD workflow, roadmap, or implementation planning sections
 
 ### Requirement: Development workflow location

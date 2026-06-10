@@ -111,7 +111,8 @@ export const ChaptersPlanDraftSchema = z.object({
       conflict: z.string(),
       payoff: z.string(),
       informationGain: z.string(),
-      endingHook: z.string()
+      endingHook: z.string(),
+      targetWords: z.number().int().positive().optional()
     })
   ),
   sourceFiles: z.array(z.string().min(1)).min(1),

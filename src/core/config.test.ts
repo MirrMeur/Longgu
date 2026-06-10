@@ -25,9 +25,10 @@ provider:
     expect(config.provider?.model).toBe("test-model");
     expect(config.language).toBe("zh-CN");
     expect(config.context!.maxTokens).toBe(16000);
+    expect(config.drafting!.targetWords).toBe(2500);
   });
 
-  it("loads configured context defaults", async () => {
+  it("loads configured workflow defaults", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-config-"));
     await writeFile(
       path.join(dir, "longgu.yaml"),
@@ -35,6 +36,8 @@ provider:
 genre: 玄幻
 context:
   maxTokens: 24000
+drafting:
+  targetWords: 1800
 provider:
   baseUrl: https://api.example.com/v1
   model: test-model
@@ -46,6 +49,7 @@ provider:
     const config = await loadLongguConfig(dir);
 
     expect(config.context!.maxTokens).toBe(24000);
+    expect(config.drafting!.targetWords).toBe(1800);
   });
 
   it("rejects missing provider fields", async () => {

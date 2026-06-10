@@ -21,6 +21,8 @@ provider:
   maxTokens: 3000
 context:
   maxTokens: 16000
+drafting:
+  targetWords: 2500
 `,
   "bible/premise.md": `# Premise
 

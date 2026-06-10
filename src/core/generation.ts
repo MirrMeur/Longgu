@@ -150,7 +150,12 @@ async function prepareChapterDraftingInput(
   if (chapterCard && !options.skipPlanAudit) {
     await assertChapterPlanAuditPassed(workspaceDir, chapterCard);
   }
-  const prompt = renderChapterPrompt({ config, chapterId: resolved.chapterId, context });
+  const prompt = renderChapterPrompt({
+    config,
+    chapterId: resolved.chapterId,
+    targetWords: chapterCard?.chapter.targetWords,
+    context
+  });
   return {
     chapterId: resolved.chapterId,
     config,

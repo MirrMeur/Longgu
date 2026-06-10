@@ -38,6 +38,10 @@ describe("writeChapter", () => {
   it("renders drafting prompt from the context pack", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-context-pack-"));
     await createPlanningStateFixture(dir);
+    const chapterPlanPath = path.join(dir, "outlines", "chapters-001.draft.json");
+    const chapterPlan = JSON.parse(await readFile(chapterPlanPath, "utf8")) as { chapters: Array<{ targetWords?: number }> };
+    chapterPlan.chapters[0].targetWords = 1600;
+    await writeFile(chapterPlanPath, `${JSON.stringify(chapterPlan, null, 2)}\n`, "utf8");
     await writeFile(path.join(dir, "chapters", "000.md"), "# 序章\n\n陆沉欠下三枚灵石。", "utf8");
     let capturedPrompt = "";
 
@@ -53,6 +57,7 @@ describe("writeChapter", () => {
 
     expect(capturedPrompt).toContain("outlines/chapters-001.draft.json");
     expect(capturedPrompt).toContain("陆沉拿到入门测试资格");
+    expect(capturedPrompt).toContain("目标字数：约 1600 字");
     expect(capturedPrompt).toContain("chapters/000.md");
     expect(capturedPrompt).toContain("陆沉欠下三枚灵石");
     await expect(readFile(path.join(dir, "context", "001.context.json"), "utf8")).resolves.toContain("previous-chapter-000");

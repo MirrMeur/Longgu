@@ -223,11 +223,15 @@ provider:
   maxTokens: 3000
 context:
   maxTokens: 16000
+drafting:
+  targetWords: 2500
 ```
 
 `provider.maxTokens` 控制单次模型输出预算。使用 reasoning model 时，如果看到“reasoning output”相关错误，优先提高这个值。
 
 `context.maxTokens` 控制 context pack 的默认输入预算；命令行 `longgu context build --chapter 001 --max-tokens 24000` 会覆盖配置值。
+
+`drafting.targetWords` 控制章节正文的目标字数，会写入写作 prompt；它不是硬截断上限，硬输出预算仍由 `provider.maxTokens` 控制。
 
 也可以配置多个模型 profile 和任务路由：
 

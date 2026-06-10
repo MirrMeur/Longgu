@@ -3,6 +3,8 @@ import path from "node:path";
 import YAML from "yaml";
 import { z } from "zod";
 
+export const defaultDraftingTargetWords = 2500;
+
 export const ProviderConfigSchema = z.object({
   name: z.string().min(1).default("openai-compatible"),
   baseUrl: z.string().url(),
@@ -32,12 +34,17 @@ export const ContextConfigSchema = z.object({
   maxTokens: z.number().int().positive().default(16000)
 });
 
+export const DraftingConfigSchema = z.object({
+  targetWords: z.number().int().positive().default(defaultDraftingTargetWords)
+});
+
 export const LongguConfigSchema = z.object({
   title: z.string().min(1),
   genre: z.string().min(1),
   language: z.string().default("zh-CN"),
   provider: ProviderConfigSchema.optional(),
   context: ContextConfigSchema.default({ maxTokens: 16000 }),
+  drafting: DraftingConfigSchema.default({ targetWords: defaultDraftingTargetWords }),
   models: z.record(z.string().min(1), ModelProfileSchema).optional(),
   routes: z.record(z.string().min(1), ModelRouteSchema).optional()
 });
@@ -47,8 +54,10 @@ export type ModelCost = z.infer<typeof ModelCostSchema>;
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 export type ModelRoute = z.infer<typeof ModelRouteSchema>;
 export type ContextConfig = z.infer<typeof ContextConfigSchema>;
-export type LongguConfig = Omit<z.infer<typeof LongguConfigSchema>, "context"> & {
+export type DraftingConfig = z.infer<typeof DraftingConfigSchema>;
+export type LongguConfig = Omit<z.infer<typeof LongguConfigSchema>, "context" | "drafting"> & {
   context?: ContextConfig;
+  drafting?: DraftingConfig;
 };
 export type ProviderBackedLongguConfig = LongguConfig & { provider: ProviderConfig };
 
