@@ -86,8 +86,8 @@ export async function reviseChapter(input: {
   if (!after.trim()) {
     throw new Error("Chapter revision failed: provider returned an empty chapter.");
   }
-  if (after === before) {
-    throw new Error("Chapter revision failed: provider output is identical to the current chapter.");
+  if (after === before && selectedIssues.some((issue) => issue.severity === "critical")) {
+    throw new Error("Chapter revision failed: provider output is identical while critical issues remain selected.");
   }
 
   const preCriticalCount = countCritical(audit);

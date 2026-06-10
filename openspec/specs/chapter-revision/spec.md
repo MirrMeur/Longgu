@@ -73,10 +73,18 @@ The system SHALL preserve a readable diff between the original and revised chapt
 - **WHEN** a revision changes chapter text
 - **THEN** `diff.md` contains removed and added lines
 
-#### Scenario: Identical output rejected
+#### Scenario: Non-critical identical output recorded
 - **WHEN** provider output is identical to the existing chapter
+- **AND** the selected revision issues are not critical
+- **THEN** the revision succeeds
+- **AND** the system writes a revision record
+- **AND** the chapter content remains unchanged
+
+#### Scenario: Critical identical output rejected
+- **WHEN** provider output is identical to the existing chapter
+- **AND** the selected revision issues include a critical issue
 - **THEN** the revision fails
-- **THEN** the chapter is not modified
+- **AND** the chapter is not modified
 
 ### Requirement: State safety during revision
 The system SHALL NOT mutate story state ledgers during chapter revision.

@@ -72,11 +72,31 @@ describe("chapter revision", () => {
     });
   });
 
-  it("rejects unchanged provider output", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-revise-unchanged-"));
+  it("records unchanged provider output for non-critical revisions", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-revise-unchanged-warning-"));
     await createFixtureWorkspace(dir);
     await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n正文。\n", "utf8");
     await writeAudit(dir, createAudit({ severity: "warning" }));
+
+    const result = await reviseChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      config: testConfig,
+      apiKey: "secret",
+      generate: async () => ({ text: "# 第一章\n\n正文。\n" }),
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    await expect(readFile(path.join(dir, "chapters", "001.md"), "utf8")).resolves.toBe("# 第一章\n\n正文。\n");
+    await expect(readFile(path.join(result.revisionDir, "after.md"), "utf8")).resolves.toBe("# 第一章\n\n正文。\n");
+    await expect(readFile(result.diffPath, "utf8")).resolves.toContain("# Revision Diff");
+  });
+
+  it("rejects unchanged provider output for critical revisions", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-revise-unchanged-critical-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n正文。\n", "utf8");
+    await writeAudit(dir, createAudit({ severity: "critical" }));
 
     await expect(
       reviseChapter({
@@ -87,7 +107,7 @@ describe("chapter revision", () => {
         generate: async () => ({ text: "# 第一章\n\n正文。\n" }),
         now: new Date("2026-06-09T13:00:00.000Z")
       })
-    ).rejects.toThrow("identical");
+    ).rejects.toThrow("critical");
   });
 
   it("fails when post-audit critical count does not decrease without modifying chapter", async () => {
