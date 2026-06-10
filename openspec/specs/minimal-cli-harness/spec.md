@@ -83,6 +83,30 @@ The system SHALL provide `longgu write chapter --id <id>` to generate or import 
 - **THEN** the system writes the generated chapter to `chapters/001.md`
 - **THEN** the system creates a run record under `runs/`
 
+#### Scenario: Resolve short planned chapter id
+- **WHEN** a user runs `longgu write chapter --id 001`
+- **AND** the chapter plan contains exactly one chapter id ending in `-001`
+- **THEN** the system drafts using that planned chapter id
+- **AND** the context includes the matching chapter card
+- **AND** the chapter-plan audit gate applies to that planned chapter
+
+#### Scenario: Reject ambiguous short planned chapter id
+- **WHEN** a user runs `longgu write chapter --id 001`
+- **AND** multiple planned chapter ids end in `-001`
+- **THEN** the system rejects the request and asks for the full planned id
+
+#### Scenario: Reject unmatched id when chapter plans exist
+- **WHEN** no planned chapter card matches the requested id
+- **AND** chapter plan files exist
+- **AND** the user does not pass `--skip-plan-audit`
+- **THEN** the system rejects the request instead of silently drafting without a chapter card
+
+#### Scenario: Generate unmatched id explicitly
+- **WHEN** no planned chapter card matches the requested id
+- **AND** chapter plan files exist
+- **AND** the user passes `--skip-plan-audit`
+- **THEN** the system may draft without a chapter card
+
 #### Scenario: Block drafting when chapter plan audit is missing
 - **WHEN** a user runs `longgu write chapter --id 001-001`
 - **AND** `outlines/chapters-001.draft.json` contains a card for chapter `001-001`
@@ -137,3 +161,4 @@ The system SHALL include an `examples/xuanhuan-demo/` workspace that demonstrate
 #### Scenario: Example project is inspectable
 - **WHEN** a developer opens `examples/xuanhuan-demo/`
 - **THEN** it contains `longgu.yaml`, base `bible/` files, `chapters/`, and `runs/` placeholders compatible with V0.1 commands
+

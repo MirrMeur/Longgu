@@ -31,7 +31,7 @@ export async function writeChapter(input: {
   const routed = await runRoutedTextGeneration({
     workspaceDir: input.workspaceDir,
     task: "drafting",
-    subjectId: input.chapterId,
+    subjectId: draftInput.chapterId,
     config,
     prompt: draftInput.prompt,
     context: draftInput.context,
@@ -41,9 +41,9 @@ export async function writeChapter(input: {
     generate: input.generate
   });
 
-  const chapterPath = path.join(input.workspaceDir, "chapters", `${input.chapterId}.md`);
+  const chapterPath = path.join(input.workspaceDir, "chapters", `${draftInput.chapterId}.md`);
   await mkdir(path.dirname(chapterPath), { recursive: true });
-  const chapterText = normalizeGeneratedChapterHeading(routed.text, input.chapterId, draftInput.chapterTitle);
+  const chapterText = normalizeGeneratedChapterHeading(routed.text, draftInput.chapterId, draftInput.chapterTitle);
   await writeFile(chapterPath, chapterText, "utf8");
   return { chapterPath, runDir: routed.runDir };
 }
@@ -58,7 +58,7 @@ export async function exportHostChapterPrompt(input: {
   });
   const outputDir = path.join(input.workspaceDir, "host-prompts");
   await mkdir(outputDir, { recursive: true });
-  const promptPath = path.join(outputDir, `${input.chapterId}.prompt.md`);
+  const promptPath = path.join(outputDir, `${draftInput.chapterId}.prompt.md`);
   await writeFile(promptPath, draftInput.prompt, "utf8");
   return {
     promptPath,
@@ -80,14 +80,14 @@ export async function importHostChapterDraft(input: {
   });
   const sourcePath = resolveWorkspacePath(input.workspaceDir, input.inputPath);
   const rawDraft = await readFile(sourcePath, "utf8");
-  const chapterText = normalizeGeneratedChapterHeading(rawDraft, input.chapterId, draftInput.chapterTitle);
-  const chapterPath = path.join(input.workspaceDir, "chapters", `${input.chapterId}.md`);
+  const chapterText = normalizeGeneratedChapterHeading(rawDraft, draftInput.chapterId, draftInput.chapterTitle);
+  const chapterPath = path.join(input.workspaceDir, "chapters", `${draftInput.chapterId}.md`);
   await mkdir(path.dirname(chapterPath), { recursive: true });
   await writeFile(chapterPath, chapterText, "utf8");
 
   const run = await createRunRecord({
     workspaceDir: input.workspaceDir,
-    chapterId: input.chapterId,
+    chapterId: draftInput.chapterId,
     provider: "host-llm",
     model: "host-llm",
     startedAt,
@@ -101,7 +101,7 @@ export async function importHostChapterDraft(input: {
     metadata: {
       id: run.id,
       status: "success",
-      chapterId: input.chapterId,
+      chapterId: draftInput.chapterId,
       task: "drafting",
       provider: "host-llm",
       model: "host-llm",
@@ -134,6 +134,7 @@ async function prepareChapterDraftingInput(
   chapterId: string,
   options: { skipPlanAudit?: boolean } = {}
 ): Promise<{
+  chapterId: string;
   config: LongguConfig;
   context: { file: string; content: string }[];
   prompt: string;
@@ -142,14 +143,16 @@ async function prepareChapterDraftingInput(
   contextMarkdownPath: string;
 }> {
   const config = await loadLongguConfig(workspaceDir);
-  const contextResult = await buildChapterContext({ workspaceDir, chapterId });
+  const resolved = await resolveDraftingChapterId(workspaceDir, chapterId, options);
+  const contextResult = await buildChapterContext({ workspaceDir, chapterId: resolved.chapterId });
   const context = contextPackToPromptContext(contextResult.pack);
-  const chapterCard = await findChapterCard(workspaceDir, chapterId);
+  const chapterCard = resolved.chapterCard;
   if (chapterCard && !options.skipPlanAudit) {
     await assertChapterPlanAuditPassed(workspaceDir, chapterCard);
   }
-  const prompt = renderChapterPrompt({ config, chapterId, context });
+  const prompt = renderChapterPrompt({ config, chapterId: resolved.chapterId, context });
   return {
+    chapterId: resolved.chapterId,
     config,
     context,
     prompt,
@@ -168,21 +171,56 @@ function contextPackToPromptContext(pack: ContextPack): { file: string; content:
     }));
 }
 
-async function findChapterCard(
+async function resolveDraftingChapterId(
   workspaceDir: string,
-  chapterId: string
-): Promise<{ file: string; volumeId: string; chapter: ChaptersPlanDraft["chapters"][number] } | null> {
+  chapterId: string,
+  options: { skipPlanAudit?: boolean }
+): Promise<{ chapterId: string; chapterCard: { file: string; volumeId: string; chapter: ChaptersPlanDraft["chapters"][number] } | null }> {
+  const cards = await loadChapterCards(workspaceDir);
+  if (cards.length === 0) {
+    return { chapterId, chapterCard: null };
+  }
+
+  const exact = cards.find((card) => card.chapter.chapterId === chapterId);
+  if (exact) {
+    return { chapterId: exact.chapter.chapterId, chapterCard: exact };
+  }
+
+  const suffixMatches = cards.filter((card) => card.chapter.chapterId.endsWith(`-${chapterId}`));
+  if (suffixMatches.length === 1) {
+    const chapterCard = suffixMatches[0];
+    return { chapterId: chapterCard.chapter.chapterId, chapterCard };
+  }
+  if (suffixMatches.length > 1) {
+    throw new Error(
+      `Ambiguous chapter id ${chapterId}; matching planned ids: ${suffixMatches
+        .map((card) => card.chapter.chapterId)
+        .join(", ")}. Use the full planned id.`
+    );
+  }
+
+  if (options.skipPlanAudit) {
+    return { chapterId, chapterCard: null };
+  }
+  throw new Error(
+    `No chapter plan card found for ${chapterId}. Use the full planned id, or pass --skip-plan-audit to draft without a chapter card.`
+  );
+}
+
+async function loadChapterCards(
+  workspaceDir: string
+): Promise<{ file: string; volumeId: string; chapter: ChaptersPlanDraft["chapters"][number] }[]> {
   const outlinesDir = path.join(workspaceDir, "outlines");
   const entries = await readdir(outlinesDir).catch(() => []);
+  const cards: { file: string; volumeId: string; chapter: ChaptersPlanDraft["chapters"][number] }[] = [];
   for (const file of entries.filter((entry) => entry.startsWith("chapters-") && entry.endsWith(".draft.json")).sort()) {
     const raw = await readFile(path.join(outlinesDir, file), "utf8");
     const plan = ChaptersPlanDraftSchema.parse(JSON.parse(raw) as unknown);
-    const chapter = plan.chapters.find((entry) => entry.chapterId === chapterId);
-    if (chapter) {
-      return { file: path.join("outlines", file), volumeId: plan.volumeId, chapter };
+    for (const chapter of plan.chapters) {
+      cards.push({ file: path.join("outlines", file), volumeId: plan.volumeId, chapter });
     }
   }
-  return null;
+  return cards;
 }
 
 async function assertChapterPlanAuditPassed(

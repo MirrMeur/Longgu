@@ -198,56 +198,7 @@ describe("writeChapter", () => {
   it("uses the full compound chapter id in the planned heading", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-compound-title-"));
     await createFixtureWorkspace(dir);
-    await writeFile(
-      path.join(dir, "outlines", "chapters-001.draft.json"),
-      `${JSON.stringify(
-        {
-          schemaVersion: "longgu.chapters-plan-draft.v0.2",
-          status: "draft",
-          volumeId: "001",
-          title: "第一卷 章节规划",
-          genre: "玄幻",
-          volumePlanSource: "outlines/volume-001.draft.json",
-          chapterCount: 1,
-          chapters: [
-            {
-              chapterId: "001-002",
-              title: "第二章 黑纹",
-              goal: "",
-              conflict: "",
-              payoff: "",
-              informationGain: "",
-              endingHook: ""
-            }
-          ],
-          sourceFiles: ["outlines/volume-001.draft.json"],
-          sourceDigest: [{ file: "outlines/volume-001.draft.json", excerpt: "" }],
-          generatedAt: "2026-06-09T12:00:00.000Z"
-        },
-        null,
-        2
-      )}\n`,
-      "utf8"
-    );
-    await mkdir(path.join(dir, "audits"), { recursive: true });
-    await writeFile(
-      path.join(dir, "audits", "chapters-001.plan-audit.json"),
-      `${JSON.stringify(
-        {
-          schemaVersion: "longgu.chapter-plan-audit.v0.2",
-          volumeId: "001",
-          status: "passed",
-          blocked: false,
-          summary: "Manual test plan is ready.",
-          issues: [],
-          sourceFiles: ["outlines/chapters-001.draft.json"],
-          generatedAt: "2026-06-09T12:00:00.000Z"
-        },
-        null,
-        2
-      )}\n`,
-      "utf8"
-    );
+    await writeCompoundChapterPlan(dir, "001", [{ chapterId: "001-002", title: "第二章 黑纹" }]);
 
     await writeChapter({
       workspaceDir: dir,
@@ -258,6 +209,66 @@ describe("writeChapter", () => {
 
     const chapter = await readFile(path.join(dir, "chapters", "001-002.md"), "utf8");
     expect(chapter).toBe("# 第001-002章 第二章 黑纹\n\n第二章正文。");
+  });
+
+  it("resolves a unique short planned chapter id to its full id", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-short-planned-id-"));
+    await createFixtureWorkspace(dir);
+    await writeCompoundChapterPlan(dir, "001", [{ chapterId: "001-001", title: "第一章 入门" }]);
+
+    const result = await writeChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      apiKey: "secret",
+      generate: async () => ({ text: "# 模型标题\n\n短 ID 正文。" })
+    });
+
+    expect(result.chapterPath).toBe(path.join(dir, "chapters", "001-001.md"));
+    const chapter = await readFile(path.join(dir, "chapters", "001-001.md"), "utf8");
+    expect(chapter).toBe("# 第001-001章 第一章 入门\n\n短 ID 正文。");
+    const run = await latestRun(dir);
+    expect(run?.metadata.chapterId).toBe("001-001");
+    expect(run?.metadata.inputFiles).toContain("outlines/chapters-001.draft.json");
+  });
+
+  it("rejects ambiguous short planned chapter ids", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-ambiguous-short-id-"));
+    await createFixtureWorkspace(dir);
+    await writeCompoundChapterPlan(dir, "001", [{ chapterId: "001-001", title: "第一卷第一章" }]);
+    await writeCompoundChapterPlan(dir, "002", [{ chapterId: "002-001", title: "第二卷第一章" }]);
+
+    await expect(
+      writeChapter({
+        workspaceDir: dir,
+        chapterId: "001",
+        apiKey: "secret",
+        generate: async () => ({ text: "# 不应写入\n\n正文。" })
+      })
+    ).rejects.toThrow("Ambiguous chapter id");
+  });
+
+  it("rejects unmatched ids when chapter plans exist unless skipped", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-unmatched-planned-id-"));
+    await createFixtureWorkspace(dir);
+    await writeCompoundChapterPlan(dir, "001", [{ chapterId: "001-001", title: "第一章 入门" }]);
+
+    await expect(
+      writeChapter({
+        workspaceDir: dir,
+        chapterId: "999",
+        apiKey: "secret",
+        generate: async () => ({ text: "# 不应写入\n\n正文。" })
+      })
+    ).rejects.toThrow("No chapter plan card found");
+
+    const result = await writeChapter({
+      workspaceDir: dir,
+      chapterId: "999",
+      apiKey: "secret",
+      skipPlanAudit: true,
+      generate: async () => ({ text: "# 模型标题\n\n未规划章节。" })
+    });
+    await expect(readFile(result.chapterPath, "utf8")).resolves.toBe("# 模型标题\n\n未规划章节。");
   });
 
   it("keeps provider output unchanged when no matching chapter card exists", async () => {
@@ -363,3 +374,59 @@ context:
     await expect(readFile(path.join(run?.dir ?? "", "error.txt"), "utf8")).resolves.toContain("fake provider failed");
   });
 });
+
+async function writeCompoundChapterPlan(
+  root: string,
+  volumeId: string,
+  chapters: { chapterId: string; title: string }[]
+): Promise<void> {
+  await mkdir(path.join(root, "outlines"), { recursive: true });
+  await writeFile(
+    path.join(root, "outlines", `chapters-${volumeId}.draft.json`),
+    `${JSON.stringify(
+      {
+        schemaVersion: "longgu.chapters-plan-draft.v0.2",
+        status: "draft",
+        volumeId,
+        title: `第${volumeId}卷 章节规划`,
+        genre: "玄幻",
+        volumePlanSource: `outlines/volume-${volumeId}.draft.json`,
+        chapterCount: chapters.length,
+        chapters: chapters.map((chapter) => ({
+          chapterId: chapter.chapterId,
+          title: chapter.title,
+          goal: "推进主线。",
+          conflict: "外部压力升级。",
+          payoff: "主角获得阶段收益。",
+          informationGain: "读者获得新信息。",
+          endingHook: "留下下一章钩子。"
+        })),
+        sourceFiles: [`outlines/volume-${volumeId}.draft.json`],
+        sourceDigest: [{ file: `outlines/volume-${volumeId}.draft.json`, excerpt: "" }],
+        generatedAt: "2026-06-09T12:00:00.000Z"
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await mkdir(path.join(root, "audits"), { recursive: true });
+  await writeFile(
+    path.join(root, "audits", `chapters-${volumeId}.plan-audit.json`),
+    `${JSON.stringify(
+      {
+        schemaVersion: "longgu.chapter-plan-audit.v0.2",
+        volumeId,
+        status: "passed",
+        blocked: false,
+        summary: "Manual test plan is ready.",
+        issues: [],
+        sourceFiles: [`outlines/chapters-${volumeId}.draft.json`],
+        generatedAt: "2026-06-09T12:00:00.000Z"
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+}

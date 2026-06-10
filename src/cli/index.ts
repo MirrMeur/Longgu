@@ -82,7 +82,7 @@ write
   .option("--important", "use important drafting model route when configured")
   .option("--host-prompt", "write a prompt for a host LLM instead of calling a provider")
   .option("--input <path>", "import a host-generated Markdown chapter instead of calling a provider")
-  .option("--skip-plan-audit", "bypass the chapter-plan audit gate when a matching chapter card exists")
+  .option("--skip-plan-audit", "bypass the chapter-plan audit gate and allow unplanned chapter ids")
   .argument("[dir]", "workspace directory", ".")
   .action(async (dir: string, options: { id: string; important?: boolean; hostPrompt?: boolean; input?: string; skipPlanAudit?: boolean }) => {
     await runCli(async () => {
