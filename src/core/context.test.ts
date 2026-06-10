@@ -124,6 +124,28 @@ describe("chapter context builder", () => {
     expect(result.pack.sections.find((section) => section.id === "previous-chapter-002")).toBeUndefined();
   });
 
+  it("uses natural chapter ordering for cross-volume previous chapter bodies", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-natural-chapter-order-"));
+    await createPlanningStateFixture(dir);
+    await writeFile(path.join(dir, "chapters", "v9-005.md"), "# 第九卷 第五章\n\n上一卷尾声。", "utf8");
+    await writeFile(path.join(dir, "chapters", "v10-001.md"), "# 第十卷 第一章\n\n目标章旧稿不应进入自己的上下文。", "utf8");
+
+    const result = await buildChapterContext({
+      workspaceDir: dir,
+      chapterId: "v10-001",
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    const previous = result.pack.sections.find((section) => section.id === "previous-chapter-v9-005");
+    expect(previous).toMatchObject({
+      source: "chapters/v9-005.md",
+      priority: "low",
+      included: true
+    });
+    expect(previous?.content).toContain("上一卷尾声");
+    expect(result.pack.sections.find((section) => section.id === "previous-chapter-v10-001")).toBeUndefined();
+  });
+
   it("includes human feedback in context packs", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-feedback-"));
     await createPlanningStateFixture(dir);

@@ -269,9 +269,11 @@ async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string
   const chaptersDir = path.join(workspaceDir, "chapters");
   const entries = await readdir(chaptersDir).catch(() => []);
   const chapters: { chapterId: string; file: string; content: string }[] = [];
-  for (const file of entries.filter((entry) => entry.endsWith(".md")).sort()) {
+  for (const file of entries
+    .filter((entry) => entry.endsWith(".md"))
+    .sort((left, right) => compareChapterIds(stripMarkdownExtension(left), stripMarkdownExtension(right)))) {
     const existingChapterId = file.slice(0, -".md".length);
-    if (existingChapterId === chapterId || existingChapterId.localeCompare(chapterId) >= 0) {
+    if (existingChapterId === chapterId || compareChapterIds(existingChapterId, chapterId) >= 0) {
       continue;
     }
     const relative = path.join("chapters", file);
@@ -283,7 +285,7 @@ async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string
   }
 
   return chapters
-    .sort((left, right) => right.chapterId.localeCompare(left.chapterId))
+    .sort((left, right) => compareChapterIds(right.chapterId, left.chapterId))
     .slice(0, 2)
     .map((chapter) => ({
       id: `previous-chapter-${chapter.chapterId}`,
@@ -292,6 +294,45 @@ async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string
       priority: "low",
       content: chapter.content
     }));
+}
+
+function stripMarkdownExtension(file: string): string {
+  return file.slice(0, -".md".length);
+}
+
+function compareChapterIds(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+
+  const leftParts = splitNaturalParts(left);
+  const rightParts = splitNaturalParts(right);
+  const length = Math.min(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index];
+    const rightPart = rightParts[index];
+    const bothNumeric = leftPart.kind === "number" && rightPart.kind === "number";
+    if (bothNumeric && leftPart.value !== rightPart.value) {
+      return leftPart.value - rightPart.value;
+    }
+    if (!bothNumeric && leftPart.raw !== rightPart.raw) {
+      return leftPart.raw.localeCompare(rightPart.raw);
+    }
+  }
+
+  if (leftParts.length !== rightParts.length) {
+    return leftParts.length - rightParts.length;
+  }
+  return left.localeCompare(right);
+}
+
+function splitNaturalParts(input: string): { kind: "number" | "text"; raw: string; value: number }[] {
+  return (input.match(/\d+|\D+/g) ?? [input]).map((raw) => {
+    if (/^\d+$/.test(raw)) {
+      return { kind: "number", raw, value: Number(raw) };
+    }
+    return { kind: "text", raw, value: Number.NaN };
+  });
 }
 
 async function loadFeedbackSections(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {

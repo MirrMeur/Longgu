@@ -44,6 +44,12 @@ The system SHALL include available local context sources relevant to the target 
 - **THEN** the context pack may include the previous chapter body as low-priority continuity context
 - **THEN** the target chapter body is not included in its own context pack
 
+#### Scenario: Cross-volume previous chapter body selection
+- **WHEN** the target chapter id is `v10-001`
+- **AND** `chapters/v9-005.md` exists
+- **THEN** the context builder treats `v9-005` as before `v10-001`
+- **AND** the context pack may include `chapters/v9-005.md` as low-priority continuity context
+
 #### Scenario: Human feedback source selection
 - **WHEN** chapter feedback files exist under `feedback/`
 - **THEN** the context builder considers the feedback for the context pack
@@ -73,3 +79,4 @@ The system SHALL create a readable Markdown projection of included context secti
 #### Scenario: Markdown context
 - **WHEN** a context pack is built
 - **THEN** `context/<chapter-id>.context.md` contains included section headings, source paths, reasons, and content
+
