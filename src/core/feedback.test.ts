@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,5 +52,24 @@ describe("chapter feedback", () => {
     const feedback = await loadChapterFeedback(dir, "002");
 
     expect(feedback.map((item) => item.feedback.chapterId)).toEqual(["001"]);
+  });
+
+  it("reads only the latest five eligible feedback files", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-feedback-bounded-"));
+    await createFixtureWorkspace(dir);
+    for (const id of ["001", "002", "003", "004", "005", "006"]) {
+      await recordChapterFeedback({
+        workspaceDir: dir,
+        chapterId: id,
+        score: 7,
+        comment: `反馈 ${id}`,
+        now: new Date("2026-06-09T10:00:00.000Z")
+      });
+    }
+    await writeFile(path.join(dir, "feedback", "001.feedback.json"), "{ malformed", "utf8");
+
+    const feedback = await loadChapterFeedback(dir, "006");
+
+    expect(feedback.map((item) => item.feedback.chapterId)).toEqual(["002", "003", "004", "005", "006"]);
   });
 });

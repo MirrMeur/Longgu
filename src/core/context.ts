@@ -356,7 +356,7 @@ function splitNaturalParts(input: string): { kind: "number" | "text"; raw: strin
 
 async function loadFeedbackSections(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {
   const feedbackItems = await loadChapterFeedback(workspaceDir, chapterId);
-  return feedbackItems.slice(-5).map(({ file, feedback }) => ({
+  return feedbackItems.map(({ file, feedback }) => ({
     id: `feedback-${feedback.chapterId}`,
     source: file,
     reason: `章节 ${feedback.chapterId} 的人工反馈，用于避免重复质量问题并延续用户偏好。`,

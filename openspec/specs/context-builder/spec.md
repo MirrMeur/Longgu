@@ -65,7 +65,8 @@ The system SHALL include available local context sources relevant to the target 
 
 #### Scenario: Human feedback source selection
 - **WHEN** chapter feedback files exist under `feedback/`
-- **THEN** the context builder considers the feedback for the context pack
+- **THEN** the context builder considers the latest five feedback files at or before the target chapter for the context pack
+- **AND** it reads only those selected feedback JSON files
 
 ### Requirement: Explainable context
 The system SHALL explain why each context section was selected.

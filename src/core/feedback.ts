@@ -52,15 +52,26 @@ export async function loadChapterFeedback(workspaceDir: string, chapterId: strin
   const feedbackDir = path.join(workspaceDir, "feedback");
   const entries = await readdir(feedbackDir).catch(() => []);
   const feedbackItems: { file: string; feedback: ChapterFeedbackFile }[] = [];
-  for (const file of entries.filter((entry) => entry.endsWith(".feedback.json")).sort()) {
+  const selectedFiles = entries
+    .filter((entry) => entry.endsWith(".feedback.json"))
+    .map((file) => ({ file, chapterId: feedbackChapterIdFromFile(file) }))
+    .filter((entry) => entry.chapterId.localeCompare(chapterId) <= 0)
+    .sort((a, b) => a.chapterId.localeCompare(b.chapterId) || a.file.localeCompare(b.file))
+    .slice(-5);
+  for (const { file, chapterId: fileChapterId } of selectedFiles) {
     const relative = path.join("feedback", file);
     const raw = await readFile(path.join(workspaceDir, relative), "utf8");
     const feedback = ChapterFeedbackFileSchema.parse(JSON.parse(raw) as unknown);
-    if (feedback.chapterId.localeCompare(chapterId) <= 0) {
-      feedbackItems.push({ file: relative, feedback });
+    if (feedback.chapterId !== fileChapterId) {
+      throw new Error(`Feedback chapterId mismatch: expected ${fileChapterId}, received ${feedback.chapterId}.`);
     }
+    feedbackItems.push({ file: relative, feedback });
   }
   return feedbackItems;
+}
+
+function feedbackChapterIdFromFile(file: string): string {
+  return file.slice(0, -".feedback.json".length);
 }
 
 async function loadFeedbackFile(filePath: string, chapterId: string): Promise<ChapterFeedbackEntry[]> {
