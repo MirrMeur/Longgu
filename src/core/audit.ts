@@ -5,6 +5,7 @@ import type { LongguConfig, ProviderBackedLongguConfig } from "./config.js";
 import { loadLongguConfig, requireProviderBackedConfig } from "./config.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { runRoutedTextGeneration } from "./modelExecution.js";
+import { parseProviderJsonObject } from "./providerJson.js";
 import { stateLedgerFiles, loadStateLedger } from "./state.js";
 import { pathExists } from "./workspace.js";
 
@@ -446,19 +447,9 @@ ${input.previousOutput}
 }
 
 function parseRawAuditFromText(text: string): RawChapterAudit {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const jsonText = fenced?.[1] ?? extractJsonObject(trimmed);
-  return RawChapterAuditSchema.parse(JSON.parse(jsonText) as unknown);
-}
-
-function extractJsonObject(text: string): string {
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1 || last < first) {
-    throw new Error("Chapter audit extraction failed: provider response did not contain a JSON object.");
-  }
-  return text.slice(first, last + 1);
+  return RawChapterAuditSchema.parse(
+    parseProviderJsonObject(text, "Chapter audit extraction failed: provider response did not contain a JSON object.")
+  );
 }
 
 function renderAuditMarkdown(audit: ChapterAudit): string {

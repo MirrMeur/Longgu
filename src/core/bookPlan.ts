@@ -3,7 +3,10 @@ import path from "node:path";
 import { z } from "zod";
 import { loadLongguConfig, type LongguConfig } from "./config.js";
 import { runRoutedTextGeneration, type GenerateTextFn } from "./modelExecution.js";
+import { parseProviderJsonObject } from "./providerJson.js";
 import { pathExists, loadBibleContext } from "./workspace.js";
+
+const planningJsonMissingMessage = "Planning generation failed: provider response did not contain a JSON object.";
 
 export const BookPlanDraftSchema = z.object({
   schemaVersion: z.literal("longgu.book-plan-draft.v0.2"),
@@ -274,7 +277,7 @@ export async function createBookPlanDraft(input: {
         generate: input.generate
       })
     : undefined;
-  const draft = modelResult ? BookPlanDraftSchema.parse(parseJsonObject(modelResult.text)) : seed;
+  const draft = modelResult ? BookPlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : seed;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
@@ -436,7 +439,7 @@ export async function createVolumePlanDraft(input: {
         generate: input.generate
       })
     : undefined;
-  const draft = modelResult ? VolumePlanDraftSchema.parse(parseJsonObject(modelResult.text)) : seed;
+  const draft = modelResult ? VolumePlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : seed;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
@@ -516,7 +519,7 @@ export async function createChaptersPlanDraft(input: {
         generate: input.generate
       })
     : undefined;
-  const draft = modelResult ? ChaptersPlanDraftSchema.parse(parseJsonObject(modelResult.text)) : seed;
+  const draft = modelResult ? ChaptersPlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : seed;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
@@ -986,22 +989,6 @@ function pickLabeledLine(
 
 function compactExcerpt(content: string): string {
   return content.replace(/\s+/g, " ").trim().slice(0, 240);
-}
-
-function parseJsonObject(text: string): unknown {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const jsonText = fenced?.[1] ?? extractJsonObject(trimmed);
-  return JSON.parse(jsonText) as unknown;
-}
-
-function extractJsonObject(text: string): string {
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1 || last < first) {
-    throw new Error("Planning generation failed: provider response did not contain a JSON object.");
-  }
-  return text.slice(first, last + 1);
 }
 
 function escapeRegExp(value: string): string {

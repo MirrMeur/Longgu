@@ -3,6 +3,7 @@ import path from "node:path";
 import { ChapterSummarySchema, type ChapterSummary } from "./context.js";
 import { loadLongguConfig, requireProviderBackedConfig, type LongguConfig } from "./config.js";
 import { runRoutedTextGeneration, type GenerateTextFn } from "./modelExecution.js";
+import { parseProviderJsonObject } from "./providerJson.js";
 import { pathExists } from "./workspace.js";
 
 export type GenerateChapterSummaryFn = GenerateTextFn;
@@ -76,13 +77,7 @@ ${input.chapterText}
 }
 
 function parseSummaryFromText(text: string): unknown {
-  const trimmed = text.trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("Chapter summary provider response did not contain a JSON object.");
-  }
-  return JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+  return parseProviderJsonObject(text, "Chapter summary provider response did not contain a JSON object.");
 }
 
 function normalizeChapterSummary(input: { raw: unknown; chapterId: string; generatedAt: string }): ChapterSummary {

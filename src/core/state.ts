@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { requireProviderBackedConfig, type LongguConfig, type ProviderBackedLongguConfig } from "./config.js";
 import { runRoutedTextGeneration } from "./modelExecution.js";
+import { parseProviderJsonObject } from "./providerJson.js";
 import { pathExists } from "./workspace.js";
 
 const schemaVersion = z.literal("longgu.story-state.v0.3");
@@ -597,19 +598,9 @@ function truncateForRetryPrompt(value: string, limit: number): string {
 }
 
 function parseStateDeltaFromText(text: string): StateDelta {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const jsonText = fenced?.[1] ?? extractJsonObject(trimmed);
-  return StateDeltaSchema.parse(JSON.parse(jsonText) as unknown);
-}
-
-function extractJsonObject(text: string): string {
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1 || last < first) {
-    throw new Error("State delta extraction failed: provider response did not contain a JSON object.");
-  }
-  return text.slice(first, last + 1);
+  return StateDeltaSchema.parse(
+    parseProviderJsonObject(text, "State delta extraction failed: provider response did not contain a JSON object.")
+  );
 }
 
 async function writeAllStateLedgers(
