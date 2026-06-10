@@ -4,6 +4,7 @@ export interface GenerateRequest {
   prompt: string;
   config: ProviderBackedLongguConfig;
   apiKey: string;
+  signal?: AbortSignal;
 }
 
 export interface GenerateResult {
@@ -47,7 +48,8 @@ export async function generateWithOpenAICompatible(request: GenerateRequest): Pr
       messages: [{ role: "user", content: request.prompt }],
       temperature: request.config.provider.temperature,
       max_tokens: resolveRequestMaxTokens(request.config.provider.model, request.config.provider.maxTokens)
-    })
+    }),
+    signal: request.signal
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Provider generation failed: ${message}`);

@@ -12,7 +12,12 @@ export type GenerateTextFn = (request: {
   prompt: string;
   config: ProviderBackedLongguConfig;
   apiKey: string;
+  signal?: AbortSignal;
 }) => Promise<{ text: string }>;
+
+const defaultGenerationTimeoutMs = 60_000;
+const transientRetryCount = 1;
+const defaultRetryBackoffMs = 100;
 
 export interface RoutedTextResult {
   text: string;
@@ -35,6 +40,8 @@ export async function runRoutedTextGeneration(input: {
   readApiKey?: (envName: string) => string;
   generate: GenerateTextFn;
   startedAt?: Date;
+  generationTimeoutMs?: number;
+  retryBackoffMs?: number;
 }): Promise<RoutedTextResult> {
   const route = resolveModelRoute(input.config, input.task, { important: input.important });
   const startedAt = input.startedAt ?? new Date();
@@ -56,7 +63,9 @@ export async function runRoutedTextGeneration(input: {
       profiles: [route.primary, ...(route.fallback ? [route.fallback] : [])],
       apiKey: input.apiKey,
       readApiKey: input.readApiKey,
-      generate: input.generate
+      generate: input.generate,
+      generationTimeoutMs: input.generationTimeoutMs ?? defaultGenerationTimeoutMs,
+      retryBackoffMs: input.retryBackoffMs ?? defaultRetryBackoffMs
     });
     const outputTokens = estimateTokens(routed.result.text);
     const finishedAt = new Date();
@@ -74,7 +83,7 @@ export async function runRoutedTextGeneration(input: {
       inputFiles: input.context.map((item) => item.file),
       promptFile: "prompt.md",
       outputFile: "output.md",
-      fallbackAttempts: routed.attempts.filter((attempt) => attempt.status === "failed").length,
+      fallbackAttempts: inputFallbackAttempts([route.primary, ...(route.fallback ? [route.fallback] : [])], routed.profile),
       inputTokens,
       outputTokens,
       estimatedCost: estimateCost(inputTokens, outputTokens, routed.profile.profile.cost),
@@ -123,6 +132,8 @@ async function generateWithProfiles(input: {
   apiKey?: string;
   readApiKey?: (envName: string) => string;
   generate: GenerateTextFn;
+  generationTimeoutMs: number;
+  retryBackoffMs: number;
 }): Promise<{ result: { text: string }; profile: ResolvedModelProfile; attempts: RunAttemptMetadata[] }> {
   const attempts: RunAttemptMetadata[] = [];
   let lastError = "";
@@ -132,25 +143,82 @@ async function generateWithProfiles(input: {
     if (!apiKey) {
       throw new Error(`API key check failed. Environment variable ${profile.profile.provider.apiKeyEnv} is not set.`);
     }
-    try {
-      const result = await input.generate({ prompt: input.prompt, config: routedConfig, apiKey });
-      attempts.push({
-        modelProfile: profile.id,
-        provider: profile.profile.provider.name,
-        model: profile.profile.provider.model,
-        status: "success"
-      });
-      return { result, profile, attempts };
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      attempts.push({
-        modelProfile: profile.id,
-        provider: profile.profile.provider.name,
-        model: profile.profile.provider.model,
-        status: "failed",
-        error: lastError
-      });
+    for (let attemptIndex = 0; attemptIndex <= transientRetryCount; attemptIndex += 1) {
+      try {
+        const result = await generateWithTimeout({
+          prompt: input.prompt,
+          config: routedConfig,
+          apiKey,
+          timeoutMs: input.generationTimeoutMs,
+          generate: input.generate
+        });
+        attempts.push({
+          modelProfile: profile.id,
+          provider: profile.profile.provider.name,
+          model: profile.profile.provider.model,
+          status: "success"
+        });
+        return { result, profile, attempts };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        attempts.push({
+          modelProfile: profile.id,
+          provider: profile.profile.provider.name,
+          model: profile.profile.provider.model,
+          status: "failed",
+          error: lastError
+        });
+        if (!isTransientProviderError(lastError) || attemptIndex === transientRetryCount) {
+          break;
+        }
+        await wait(input.retryBackoffMs * 2 ** attemptIndex);
+      }
     }
   }
   throw new Error(lastError || "Provider generation failed.");
+}
+
+async function generateWithTimeout(input: {
+  prompt: string;
+  config: ProviderBackedLongguConfig;
+  apiKey: string;
+  timeoutMs: number;
+  generate: GenerateTextFn;
+}): Promise<{ text: string }> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`Provider generation timed out after ${input.timeoutMs}ms.`));
+      controller.abort();
+    }, input.timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      input.generate({ prompt: input.prompt, config: input.config, apiKey: input.apiKey, signal: controller.signal }),
+      timeoutPromise
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function isTransientProviderError(message: string): boolean {
+  return (
+    /timed out|timeout|aborted|network|fetch|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(message) ||
+    /HTTP (408|409|425|429|5\d\d)\b/i.test(message)
+  );
+}
+
+function inputFallbackAttempts(profiles: ResolvedModelProfile[], selectedProfile: ResolvedModelProfile): number {
+  return Math.max(
+    0,
+    profiles.findIndex((profile) => profile.id === selectedProfile.id)
+  );
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
