@@ -10,7 +10,7 @@ import {
 import { loadLongguConfig } from "./config.js";
 import { loadChapterFeedback } from "./feedback.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
-import { loadStateLedger, stateLedgerFiles } from "./state.js";
+import { loadStateLedger, stateLedgerFiles, type StateLedger } from "./state.js";
 import { estimateTokens } from "./tokenEstimate.js";
 import { loadBibleContext, pathExists } from "./workspace.js";
 export { estimateTokens } from "./tokenEstimate.js";
@@ -374,14 +374,89 @@ async function loadStateSections(workspaceDir: string): Promise<ContextCandidate
     }
     const ledger = await loadStateLedger(workspaceDir, file);
     sections.push({
+      id: `state-${ledger.ledger}-summary`,
+      source: path.join("state", file),
+      reason: `${ledger.ledger} 状态账本摘要保留长篇一致性的关键计数、活跃信号和近期变化。`,
+      priority: "critical",
+      content: renderStateLedgerSummary(ledger)
+    });
+    sections.push({
       id: `state-${ledger.ledger}`,
       source: path.join("state", file),
-      reason: `${ledger.ledger} 状态账本是长篇一致性的硬约束，不能因预算裁剪丢失。`,
-      priority: "critical",
+      reason: `${ledger.ledger} 完整状态账本提供可审查细节；预算紧张时可先依赖 critical 摘要。`,
+      priority: "high",
       content: JSON.stringify(ledger, null, 2)
     });
   }
   return sections;
+}
+
+function renderStateLedgerSummary(ledger: StateLedger): string {
+  return JSON.stringify(
+    {
+      schemaVersion: ledger.schemaVersion,
+      ledger: ledger.ledger,
+      updatedAt: ledger.updatedAt,
+      counts: stateLedgerCounts(ledger),
+      focus: stateLedgerFocus(ledger)
+    },
+    null,
+    2
+  );
+}
+
+function stateLedgerCounts(ledger: StateLedger): Record<string, number> {
+  switch (ledger.ledger) {
+    case "truth":
+      return { facts: ledger.facts.length };
+    case "characters":
+      return { characters: ledger.characters.length };
+    case "timeline":
+      return { events: ledger.events.length };
+    case "hooks":
+      return { hooks: ledger.hooks.length, active: ledger.hooks.filter((hook) => hook.status !== "resolved").length };
+    case "reader-promises":
+      return {
+        promises: ledger.promises.length,
+        active: ledger.promises.filter((promise) => promise.status === "active").length
+      };
+    case "resources":
+      return { resources: ledger.resources.length };
+  }
+}
+
+function stateLedgerFocus(ledger: StateLedger): unknown {
+  switch (ledger.ledger) {
+    case "truth":
+      return { recentFacts: ledger.facts.slice(-10) };
+    case "characters":
+      return {
+        activeCharacters: ledger.characters.slice(0, 20).map((character) => ({
+          id: character.id,
+          name: character.name,
+          status: character.status,
+          location: character.location,
+          goals: character.goals,
+          relationshipCount: character.relationships.length
+        }))
+      };
+    case "timeline":
+      return { recentEvents: ledger.events.slice(-10) };
+    case "hooks":
+      return { activeHooks: ledger.hooks.filter((hook) => hook.status === "opened" || hook.status === "delayed").slice(-20) };
+    case "reader-promises":
+      return { activePromises: ledger.promises.filter((promise) => promise.status === "active").slice(-20) };
+    case "resources":
+      return {
+        resources: ledger.resources.slice(0, 20).map((resource) => ({
+          id: resource.id,
+          name: resource.name,
+          ownerCharacterId: resource.ownerCharacterId,
+          quantity: resource.quantity,
+          state: resource.state
+        }))
+      };
+  }
 }
 
 async function loadStyleSection(workspaceDir: string): Promise<ContextCandidate | null> {

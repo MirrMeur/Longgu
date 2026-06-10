@@ -29,6 +29,7 @@ describe("chapter context builder", () => {
         "bible-premise",
         "bible-characters",
         "bible-world",
+        "state-truth-summary",
         "state-truth",
         "summary-000"
       ])
@@ -37,8 +38,12 @@ describe("chapter context builder", () => {
       priority: "critical",
       included: true
     });
-    expect(result.pack.sections.find((section) => section.id === "state-truth")).toMatchObject({
+    expect(result.pack.sections.find((section) => section.id === "state-truth-summary")).toMatchObject({
       priority: "critical",
+      included: true
+    });
+    expect(result.pack.sections.find((section) => section.id === "state-truth")).toMatchObject({
+      priority: "high",
       included: true
     });
 
@@ -60,11 +65,14 @@ describe("chapter context builder", () => {
     });
 
     const chapterCard = result.pack.sections.find((section) => section.id === "chapter-card");
+    const stateTruthSummary = result.pack.sections.find((section) => section.id === "state-truth-summary");
     const stateTruth = result.pack.sections.find((section) => section.id === "state-truth");
     const summary = result.pack.sections.find((section) => section.id === "summary-000");
 
     expect(chapterCard?.included).toBe(true);
-    expect(stateTruth?.included).toBe(true);
+    expect(stateTruthSummary).toMatchObject({ priority: "critical", included: true });
+    expect(stateTruth?.priority).toBe("high");
+    expect(stateTruth?.included).toBe(false);
     expect(summary?.included).toBe(false);
     expect(result.pack.estimatedTokens).toBeGreaterThan(result.pack.tokenBudget);
   });
