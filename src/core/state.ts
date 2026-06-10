@@ -7,6 +7,8 @@ import { pathExists } from "./workspace.js";
 
 const schemaVersion = z.literal("longgu.story-state.v0.3");
 const stateDeltaSchemaVersion = z.literal("longgu.state-delta.v0.3");
+const retryErrorExcerptLimit = 1000;
+const retryOutputExcerptLimit = 1200;
 
 const datedLedger = {
   schemaVersion,
@@ -556,19 +558,42 @@ function renderStateDeltaRetryPrompt(input: {
   previousOutput: string;
   error: string;
 }): string {
+  const errorExcerpt = truncateForRetryPrompt(input.error, retryErrorExcerptLimit);
+  const outputExcerpt = truncateForRetryPrompt(input.previousOutput, retryOutputExcerptLimit);
   return `${renderStateDeltaPrompt({
     chapterId: input.chapterId,
     chapterText: input.chapterText,
     ledgers: input.ledgers
   })}
 
-上一次输出被拒绝，原因：
-${input.error}
+上一次输出被拒绝，原因片段：
+${errorExcerpt}
 
-上一次输出：
-${input.previousOutput}
+上一次输出片段：
+${outputExcerpt}
 
-请重新输出一个修正后的 JSON 对象。只输出 JSON：`;
+请重新输出一个修正后的 JSON 对象。不要复述上一次输出，不要输出 Markdown，不要解释。
+目标 JSON 形状示例：
+{
+  "schemaVersion": "longgu.state-delta.v0.3",
+  "chapterId": "${input.chapterId}",
+  "facts": [],
+  "characters": [],
+  "timelineEvents": [],
+  "hooks": [],
+  "readerPromises": [],
+  "resources": []
+}
+
+只输出 JSON：`;
+}
+
+function truncateForRetryPrompt(value: string, limit: number): string {
+  const normalized = value.trim();
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+  return `${normalized.slice(0, limit)}\n...[truncated ${normalized.length - limit} chars]`;
 }
 
 function parseStateDeltaFromText(text: string): StateDelta {

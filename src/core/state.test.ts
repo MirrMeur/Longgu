@@ -411,6 +411,7 @@ describe("settleChapterState", () => {
     });
     await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n陆沉得到一枚灵石。\n", "utf8");
     let calls = 0;
+    const longInvalidOutput = `not-json-${"x".repeat(5000)}-tail-marker`;
 
     const result = await settleChapterState({
       workspaceDir: dir,
@@ -432,10 +433,13 @@ describe("settleChapterState", () => {
       generate: async ({ prompt }) => {
         calls += 1;
         if (calls === 1) {
-          return { text: "not json" };
+          return { text: longInvalidOutput };
         }
         expect(prompt).toContain("上一次输出被拒绝");
         expect(prompt).toContain("provider response did not contain a JSON object");
+        expect(prompt).toContain("上一次输出片段");
+        expect(prompt).not.toContain("tail-marker");
+        expect(prompt).toContain('"schemaVersion": "longgu.state-delta.v0.3"');
         return {
           text: JSON.stringify({
             schemaVersion: "longgu.state-delta.v0.3",

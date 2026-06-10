@@ -157,11 +157,13 @@ The system SHALL retry model-generated state delta extraction once when the firs
 - **WHEN** a user runs `longgu settle chapter --id 001`
 - **AND** the first provider output is invalid JSON or does not match the state delta schema
 - **THEN** the system asks the provider to output the delta again with the validation error included
+- **THEN** the retry prompt includes only a bounded excerpt of the rejected output
 - **THEN** no state ledgers are modified until a valid conflict-free delta is produced
 
 #### Scenario: Retry conflict-blocked model delta
 - **WHEN** a model-generated delta attempts a blocking state conflict
 - **THEN** the system asks the provider to output a corrected delta with the conflict reason included
+- **THEN** the retry prompt includes only a bounded excerpt of the rejected output
 - **THEN** no state ledgers are modified until a valid conflict-free delta is produced
 
 #### Scenario: Retry success record
@@ -174,11 +176,6 @@ The system SHALL retry model-generated state delta extraction once when the firs
 - **THEN** the system reports the final error
 - **THEN** no state ledgers are modified
 - **THEN** no success settlement record is written
-
-#### Scenario: File delta does not retry
-- **WHEN** a user runs `longgu settle chapter --id 001 --delta <file>`
-- **AND** the provided delta fails validation or conflict checks
-- **THEN** the system rejects it without making a provider request
 
 ### Requirement: State consistency check command
 The system SHALL provide `longgu state check` to validate story state ledgers, detect reader promise debt when chapter context is provided, and write reviewable consistency reports.
