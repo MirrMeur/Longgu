@@ -141,6 +141,39 @@ describe("writeChapter", () => {
     await expect(readFile(result.chapterPath, "utf8")).resolves.toContain("跳过门禁写入");
   });
 
+  it("retries likely truncated provider output before writing the chapter", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-truncated-retry-"));
+    await createFixtureWorkspace(dir);
+    const outputs = [
+      `# 第一章\n\n${"陆沉沿着山路向前走，".repeat(12)}忽然听见身后传来`,
+      `# 第一章\n\n陆沉沿着山路向前走，忽然听见身后传来钟声。他回头看见宗门山门洞开，第一场考验终于开始。`
+    ];
+
+    const result = await writeChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      apiKey: "secret",
+      generate: async () => ({ text: outputs.shift() ?? "" })
+    });
+
+    await expect(readFile(result.chapterPath, "utf8")).resolves.toContain("第一场考验终于开始。");
+  });
+
+  it("fails without writing when retry output is still likely truncated", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-truncated-fail-"));
+    await createFixtureWorkspace(dir);
+
+    await expect(
+      writeChapter({
+        workspaceDir: dir,
+        chapterId: "001",
+        apiKey: "secret",
+        generate: async () => ({ text: `# 第一章\n\n${"陆沉沿着山路向前走，".repeat(12)}忽然听见身后传来` })
+      })
+    ).rejects.toThrow("appears truncated after retry");
+    await expect(stat(path.join(dir, "chapters", "001.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("falls back to the configured drafting fallback model", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-fallback-"));
     await createRoutingFixtureWorkspace(dir);

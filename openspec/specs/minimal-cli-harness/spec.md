@@ -88,6 +88,15 @@ The system SHALL provide `longgu write chapter --id <id>` to generate or import 
 - **THEN** the system writes the generated chapter to `chapters/001.md`
 - **THEN** the system creates a run record under `runs/`
 
+#### Scenario: Retry likely truncated provider output
+- **WHEN** provider chapter generation returns output that appears to stop mid-sentence
+- **THEN** the system retries chapter generation once with completion guidance
+- **AND** it writes the retry output only if the retry appears complete
+
+#### Scenario: Reject repeated truncation
+- **WHEN** provider chapter generation and its retry both appear truncated
+- **THEN** the command fails without writing the chapter file
+
 #### Scenario: Resolve short planned chapter id
 - **WHEN** a user runs `longgu write chapter --id 001`
 - **AND** the chapter plan contains exactly one chapter id ending in `-001`

@@ -28,13 +28,10 @@ export async function writeChapter(input: {
     skipPlanAudit: input.skipPlanAudit
   });
   const config = requireProviderBackedConfig(draftInput.config);
-  const routed = await runRoutedTextGeneration({
+  const generated = await generateCompleteChapter({
     workspaceDir: input.workspaceDir,
-    task: "drafting",
-    subjectId: draftInput.chapterId,
+    draftInput,
     config,
-    prompt: draftInput.prompt,
-    context: draftInput.context,
     important: input.important,
     apiKey: input.apiKey,
     readApiKey: input.readApiKey,
@@ -43,9 +40,8 @@ export async function writeChapter(input: {
 
   const chapterPath = path.join(input.workspaceDir, "chapters", `${draftInput.chapterId}.md`);
   await mkdir(path.dirname(chapterPath), { recursive: true });
-  const chapterText = normalizeGeneratedChapterHeading(routed.text, draftInput.chapterId, draftInput.chapterTitle);
-  await writeFile(chapterPath, chapterText, "utf8");
-  return { chapterPath, runDir: routed.runDir };
+  await writeFile(chapterPath, generated.chapterText, "utf8");
+  return { chapterPath, runDir: generated.runDir };
 }
 
 export async function exportHostChapterPrompt(input: {
@@ -268,6 +264,72 @@ function normalizeGeneratedChapterHeading(text: string, chapterId: string, plann
   const body = text.replace(/^\s*# .*(?:\r?\n|$)/, "").trimStart();
   const normalized = `# 第${chapterId}章 ${plannedTitle}`;
   return body ? `${normalized}\n\n${body}` : `${normalized}\n`;
+}
+
+async function generateCompleteChapter(input: {
+  workspaceDir: string;
+  draftInput: {
+    chapterId: string;
+    config: LongguConfig;
+    context: { file: string; content: string }[];
+    prompt: string;
+    chapterTitle?: string;
+  };
+  config: ProviderBackedLongguConfig;
+  important?: boolean;
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate: GenerateChapterFn;
+}): Promise<{ chapterText: string; runDir: string }> {
+  let prompt = input.draftInput.prompt;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const routed = await runRoutedTextGeneration({
+      workspaceDir: input.workspaceDir,
+      task: "drafting",
+      subjectId: attempt === 0 ? input.draftInput.chapterId : `${input.draftInput.chapterId}-retry-complete`,
+      config: input.config,
+      prompt,
+      context: input.draftInput.context,
+      important: input.important,
+      apiKey: input.apiKey,
+      readApiKey: input.readApiKey,
+      generate: input.generate
+    });
+    const chapterText = normalizeGeneratedChapterHeading(routed.text, input.draftInput.chapterId, input.draftInput.chapterTitle);
+    if (!isLikelyTruncatedChapter(chapterText)) {
+      return { chapterText, runDir: routed.runDir };
+    }
+    prompt = renderTruncatedChapterRetryPrompt({
+      originalPrompt: input.draftInput.prompt,
+      previousOutput: chapterText,
+      chapterId: input.draftInput.chapterId
+    });
+  }
+  throw new Error(`Chapter generation appears truncated after retry for ${input.draftInput.chapterId}; no chapter file was written.`);
+}
+
+function isLikelyTruncatedChapter(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 120) {
+    return false;
+  }
+  if (/[。！？!?」”』）)\]】》…]$/u.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
+
+function renderTruncatedChapterRetryPrompt(input: { originalPrompt: string; previousOutput: string; chapterId: string }): string {
+  return `${input.originalPrompt}
+
+上一版第 ${input.chapterId} 章疑似在句中截断，不能保存。请重新输出完整章节：
+- 从章节开头重写，不要只续写残段
+- 保持原章节目标、上下文和目标字数
+- 结尾必须用完整句子收束，并保留章尾钩子
+
+疑似截断的上一版输出，仅用于避开同样的截断点：
+
+${input.previousOutput}`;
 }
 
 function resolveWorkspacePath(workspaceDir: string, inputPath: string): string {
