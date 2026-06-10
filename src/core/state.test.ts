@@ -201,6 +201,52 @@ describe("checkState", () => {
     await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("reader-promises/promise-001");
   });
 
+  it("reports overdue active reader promises with generated chapter ids", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-generated-id-promise-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "reader-promises.json"),
+      `${JSON.stringify(
+        ReaderPromisesLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "reader-promises",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          promises: [
+            {
+              id: "promise-v1-001",
+              text: "陆沉会查清灵石来历",
+              status: "active",
+              sourceChapterId: "v1-001"
+            }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      chapterId: "v1-050",
+      promiseMaxAge: 5,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("needs-review");
+    expect(result.report.issues[0]).toMatchObject({
+      id: "reader-promises-promise-v1-001-overdue",
+      severity: "warning",
+      ledger: "reader-promises",
+      itemId: "promise-v1-001"
+    });
+    expect(result.report.issues[0]?.reason).toContain("49 chapter(s) old");
+  });
+
   it("does not report active reader promise age without chapter context", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-promise-no-chapter-"));
     await createFixtureWorkspace(dir);

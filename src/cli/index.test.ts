@@ -519,10 +519,10 @@ describe("longgu state CLI", () => {
           updatedAt: "2026-06-09T09:00:00.000Z",
           promises: [
             {
-              id: "promise-001",
+              id: "promise-v1-001",
               text: "陆沉会查清灵石来历",
               status: "active",
-              sourceChapterId: "001"
+              sourceChapterId: "v1-001"
             }
           ]
         },
@@ -534,7 +534,7 @@ describe("longgu state CLI", () => {
 
     const result = await execFileAsync(
       process.execPath,
-      ["--import", "tsx", cliPath, "state", "check", "--chapter", "008", "--promise-max-age", "5", dir],
+      ["--import", "tsx", cliPath, "state", "check", "--chapter", "v1-050", "--promise-max-age", "5", dir],
       { cwd: path.resolve(".") }
     );
 
@@ -545,7 +545,7 @@ describe("longgu state CLI", () => {
     const markdownFile = entries.find((entry) => entry.endsWith(".md"));
     expect(markdownFile).toBeDefined();
     await expect(readFile(path.join(checksDir, markdownFile ?? ""), "utf8")).resolves.toContain(
-      "reader-promises/promise-001"
+      "reader-promises/promise-v1-001"
     );
   });
 });

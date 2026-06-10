@@ -707,10 +707,11 @@ function collectStateCheckIssues(
 
 function parseChapterNumber(chapterId: string): number | undefined {
   const normalized = chapterId.trim();
-  if (!/^\d+$/.test(normalized)) {
+  const match = normalized.match(/^(?:.+-)?(\d+)$/);
+  if (!match) {
     return undefined;
   }
-  return Number.parseInt(normalized, 10);
+  return Number.parseInt(match[1], 10);
 }
 
 function renderStateCheckMarkdown(report: StateCheckReport): string {

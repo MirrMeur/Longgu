@@ -78,7 +78,7 @@ const write = program.command("write").description("Write Longgu artifacts");
 write
   .command("chapter")
   .description("Generate a chapter")
-  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .requiredOption("--id <id>", "chapter id, e.g. v1-001 or 001")
   .option("--important", "use important drafting model route when configured")
   .option("--host-prompt", "write a prompt for a host LLM instead of calling a provider")
   .option("--input <path>", "import a host-generated Markdown chapter instead of calling a provider")
@@ -188,7 +188,7 @@ const feedback = program.command("feedback").description("Record human feedback 
 feedback
   .command("chapter")
   .description("Record human feedback for a chapter")
-  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .requiredOption("--id <id>", "chapter id, e.g. v1-001 or 001")
   .requiredOption("--score <number>", "human score 0-10", parseScore)
   .requiredOption("--comment <text>", "human feedback comment")
   .argument("[dir]", "workspace directory", ".")
@@ -445,7 +445,7 @@ const context = program.command("context").description("Build Longgu review cont
 context
   .command("build")
   .description("Build a V0.7 context pack for a chapter")
-  .requiredOption("--chapter <id>", "chapter id, e.g. 001")
+  .requiredOption("--chapter <id>", "chapter id, e.g. v1-001 or 001")
   .option("--max-tokens <number>", "estimated token budget", parsePositiveInteger)
   .argument("[dir]", "workspace directory", ".")
   .action(async (dir: string, options: { chapter: string; maxTokens?: number }) => {
@@ -534,7 +534,7 @@ state
 state
   .command("check")
   .description("Write a V0.3 state consistency check report")
-  .option("--chapter <id>", "current chapter id for reader promise debt checks")
+  .option("--chapter <id>", "current chapter id for reader promise debt checks, e.g. v1-001 or 001")
   .option("--promise-max-age <number>", "maximum active reader promise age in chapters", parsePositiveInteger)
   .argument("[dir]", "workspace directory", ".")
   .action(async (dir: string, options: { chapter?: string; promiseMaxAge?: number }) => {
@@ -553,7 +553,7 @@ const settle = program.command("settle").description("Settle Longgu artifacts in
 settle
   .command("chapter")
   .description("Apply a chapter state delta to V0.3 ledgers")
-  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .requiredOption("--id <id>", "chapter id, e.g. v1-001 or 001")
   .option("--delta <path>", "state delta JSON path; skips provider extraction when provided")
   .argument("[dir]", "workspace directory", ".")
   .action(async (dir: string, options: { id: string; delta?: string }) => {
@@ -634,7 +634,7 @@ audit
 audit
   .command("chapter")
   .description("Audit a chapter and write V0.4 audit artifacts")
-  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .requiredOption("--id <id>", "chapter id, e.g. v1-001 or 001")
   .option("--input <path>", "raw audit JSON path; skips provider extraction when provided")
   .argument("[dir]", "workspace directory", ".")
   .action(async (dir: string, options: { id: string; input?: string }) => {
@@ -667,7 +667,7 @@ const revise = program.command("revise").description("Revise Longgu artifacts");
 revise
   .command("chapter")
   .description("Revise a chapter using its V0.5 audit result")
-  .requiredOption("--id <id>", "chapter id, e.g. 001")
+  .requiredOption("--id <id>", "chapter id, e.g. v1-001 or 001")
   .option("--mode <mode>", "revision mode: spot-fix, polish, rewrite-scene, rewrite-chapter")
   .option("--input <path>", "revised chapter Markdown path; skips provider revision when provided")
   .option("--post-audit <path>", "optional post-revision audit JSON for critical-count comparison")
