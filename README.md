@@ -1,22 +1,24 @@
 # 龙骨 Longgu
 
-Longgu 是一个面向中文长篇网文创作的工程化 CLI Harness。它把开书设定、分卷拆章、章节生成、质量审计、定点修订、状态沉淀、上下文组装、模型成本和实验评测组织成可落盘、可复查、可迭代的本地工作流。
+Longgu 是一个面向中文长篇网文创作的工程化 CLI Harness。它把开书设定、分卷拆章、章节写作、质量审计、定点修订、状态沉淀、上下文组装、节奏分析、模型成本和实验评测组织成可落盘、可复查、可迭代的本地工作流。
 
-它不是单次对话式写作工具。Longgu 更适合用来支撑长篇项目：每次生成、审计、修订和状态更新都会留下文件证据，方便人工审查、版本管理和后续复盘。
+它不是单次对话式写作工具。Longgu 更适合支撑长篇项目：每次规划、生成、审计、修订、导入、沉淀和评测都会留下文件证据，方便人工审查、版本管理和后续复盘。
 
-## 核心能力
+## 当前能做什么
 
-- 小说工作区初始化：创建 `bible/`、`outlines/`、`chapters/`、`state/`、`runs/` 等目录和基础配置。
-- 开书与拆章：生成结构化的书籍规格、分卷规划和章节卡草稿。
-- 单章写作：基于 `longgu.yaml`、`bible/` 和模型路由生成章节正文。
-- 宿主 LLM 写作：在 Claude Code 等 AI 编程助手中导出章节 prompt，再导入宿主模型生成的 Markdown 正文。
-- 状态账本：维护事实、角色、时间线、伏笔、读者承诺和资源变化，支持章节状态 delta 合并。
-- 章节审计：输出结构化审计 JSON 和 Markdown 报告，包含问题分级、质量分数、修订队列和阻断状态。
-- 定点修订：根据审计结果修订章节，保存修订前后文本、diff、prompt、模型输出和 metadata。
-- 类型卡：内置中文网文类型卡，覆盖玄幻、仙侠、都市、都市系统、历史、科幻、游戏/系统、悬疑灵异。
-- 上下文包：为目标章节组装可审查的 context pack，在预算不足时优先裁剪低优先级内容。
-- 模型路由与成本：支持多模型 profile、任务路由、fallback、重要章节升级和 token/成本估算。
-- 实验评测：登记多个候选稿，写入人工评分，生成对比报告。
+- 初始化小说工作区：创建 `longgu.yaml`、`bible/`、`outlines/`、`chapters/`、`state/`、`runs/` 等基础结构。
+- 开书与拆章：生成书籍规格、分卷规划、章节卡草稿；支持 `--scaffold` 从 `bible/*.md` 提取脚手架，也支持 `--model` 调 planning 路由。
+- 上下文组装：为目标章节生成 JSON/Markdown context pack；支持 token 预算裁剪和 `--human-readable` 人类摘要卡片。
+- 单章写作：使用 provider 直接生成章节，或导出 prompt 给 Claude Code 等宿主 LLM，再导入 Markdown 正文。
+- 批量宿主 LLM 工作流：批量导出章节 prompt，批量导入 `drafts/*.md`。
+- 字数反馈：导入宿主正文时按章节目标字数输出偏差提示。
+- 章节审计与修订：输出结构化审计 JSON、Markdown 报告、修订记录、diff 和运行 metadata。
+- 状态账本：维护事实、角色、时间线、伏笔、读者承诺和资源变化；支持单章 settle、批量 settle 和一致性检查。
+- 节奏分析：跨章分析情绪曲线、章尾钩子密度、爽点间隔、疲劳风险和 CP 同框分布。
+- 类型卡与爽点配方：内置中文男频类型卡；可通过 `bible/payoff-recipes.md` 注入操作性爽点约束。
+- 市场适配：可在 `longgu.yaml` 配置平台、读者画像和更新频次，让 context/audit 带上平台意识。
+- 模型路由与成本：支持多模型 profile、任务路由、fallback、重要章节升级、token/成本估算。
+- 实验评测：登记候选稿、模型生成候选稿、人工评分、对比排序和自动诊断。
 
 ## 安装
 
@@ -39,77 +41,121 @@ node dist/cli/index.js --help
 npm run dev:cli -- --help
 ```
 
-## 10 分钟从零写一章
+## 快速开始
 
-下面是一条最短可审查流程，适合新项目先跑通一章。
+下面用 `node dist/cli/index.js` 演示。构建后如果你把 `longgu` 链接到 PATH，也可以直接用 `longgu`。
 
-初始化一个小说工作区：
+### 1. 初始化工作区
 
 ```bash
 node dist/cli/index.js init ./my-novel
 ```
 
-编辑 `./my-novel/longgu.yaml`，把 `provider.baseUrl`、`provider.model` 和 `provider.apiKeyEnv` 改成你的模型配置；再补充 `bible/premise.md`、`bible/characters.md`、`bible/world.md`、`bible/style.md`。第一轮不需要写很长，但至少写清主角、世界规则、开篇冲突和文风禁忌。
+然后编辑：
 
-检查工作区、配置和模型连接：
+- `./my-novel/longgu.yaml`
+- `./my-novel/bible/premise.md`
+- `./my-novel/bible/characters.md`
+- `./my-novel/bible/world.md`
+- `./my-novel/bible/style.md`
+- `./my-novel/bible/payoff-recipes.md`
+
+第一轮不需要写很长，但至少写清主角、世界规则、开篇冲突、文风禁忌和本书主要爽点。
+
+### 2. 检查配置
+
+如果使用 provider-backed 工作流，先配置 `provider` 和对应 API key，再运行：
 
 ```bash
 node dist/cli/index.js doctor ./my-novel
 ```
 
-生成规划草稿：
+如果只使用宿主 LLM 工作流，可以省略 `provider`，跳过 `doctor` 的模型连通性检查。
+
+### 3. 生成规划
+
+纯本地脚手架模式：
 
 ```bash
-node dist/cli/index.js plan book ./my-novel
-node dist/cli/index.js plan volume --id 001 ./my-novel
-node dist/cli/index.js plan chapters --volume 001 ./my-novel
+node dist/cli/index.js plan book --scaffold ./my-novel
+node dist/cli/index.js plan volume --id 001 --scaffold ./my-novel
+node dist/cli/index.js audit volume-plan --id 001 ./my-novel
+node dist/cli/index.js plan chapters --volume 001 --scaffold ./my-novel
+node dist/cli/index.js audit chapter-plan --volume 001 ./my-novel
 ```
 
-每一步都会写入 `outlines/*.draft.json`。默认生成 deterministic draft，适合先快速落盘和人工编辑；如果要让模型补完整规划内容，可以给三个规划命令加 `--model`。继续前先打开这些文件看一遍：不满意就直接编辑 JSON，再进入下一步。
+模型规划模式：
 
-初始化状态账本并生成章节上下文：
+```bash
+node dist/cli/index.js plan book --model ./my-novel
+node dist/cli/index.js plan volume --id 001 --model ./my-novel
+node dist/cli/index.js audit volume-plan --id 001 ./my-novel
+node dist/cli/index.js plan chapters --volume 001 --model ./my-novel
+node dist/cli/index.js audit chapter-plan --volume 001 ./my-novel
+```
+
+规划文件会写入 `outlines/`。继续前建议人工打开 JSON 看一遍；不满意就直接编辑，再重新审计。
+
+### 4. 写第一章
+
+初始化状态账本并生成上下文：
 
 ```bash
 node dist/cli/index.js state init ./my-novel
-node dist/cli/index.js context build --chapter 001 ./my-novel
+node dist/cli/index.js context build --chapter 001-001 --human-readable ./my-novel
 ```
 
-生成、审计、修订和沉淀章节。使用 Longgu 配置的 provider 时：
+使用 provider 直接写：
 
 ```bash
-node dist/cli/index.js write chapter --id 001 ./my-novel
-node dist/cli/index.js audit chapter --id 001 ./my-novel
-node dist/cli/index.js revise chapter --id 001 ./my-novel
-node dist/cli/index.js feedback chapter --id 001 --score 7 --comment "节奏比初稿好，但章尾钩子还弱" ./my-novel
-node dist/cli/index.js settle chapter --id 001 ./my-novel
-node dist/cli/index.js state check ./my-novel
+node dist/cli/index.js write chapter --id 001-001 ./my-novel
 ```
 
-在 Claude Code 或其他 AI 编程助手里，也可以不配置 provider，改用宿主 LLM 写正文。先生成可复制给宿主模型的 prompt：
+使用宿主 LLM 写：
 
 ```bash
-node dist/cli/index.js write chapter --id 001 --host-prompt ./my-novel
+node dist/cli/index.js write chapter --id 001-001 --host-prompt ./my-novel
 ```
 
-让宿主模型根据 `host-prompts/001.prompt.md` 写出 Markdown 正文并保存到工作区，例如 `drafts/001.md`，再导入 Longgu：
+把 `host-prompts/001-001.prompt.md` 交给 Claude Code 或其他宿主模型生成正文，保存成 `drafts/001-001.md`，再导入：
 
 ```bash
-node dist/cli/index.js write chapter --id 001 --input drafts/001.md ./my-novel
+node dist/cli/index.js write chapter --id 001-001 --input drafts/001-001.md ./my-novel
 ```
 
-导入后同样会写入 `chapters/001.md` 和 `runs/` 记录，后续继续走 `audit`、`revise`、`feedback`、`settle`。
-
-生成后建议先读 `chapters/001.md`，再看 `audits/001.audit.md`。如果审计阻断或问题较多，先运行 `revise chapter` 或手动改章节；也可以用 `feedback chapter` 记录人工评价，让后续 context pack 带上这些偏好。满意后再 `settle chapter` 写入状态账本。
-
-查看模型和成本：
+批量宿主 LLM 工作流：
 
 ```bash
-node dist/cli/index.js model list ./my-novel
-node dist/cli/index.js cost report ./my-novel
-node dist/cli/index.js run show ./my-novel
+node dist/cli/index.js write batch --from 001-001 --to 001-010 --host-prompt ./my-novel
+node dist/cli/index.js write batch --from 001-001 --to 001-010 --input-dir drafts ./my-novel
 ```
 
-创建实验并比较候选稿：
+### 5. 审计、修订、沉淀
+
+```bash
+node dist/cli/index.js audit chapter --id 001-001 ./my-novel
+node dist/cli/index.js revise chapter --id 001-001 ./my-novel
+node dist/cli/index.js feedback chapter --id 001-001 --score 7 --comment "节奏比初稿好，但章尾钩子还弱" ./my-novel
+node dist/cli/index.js settle chapter --id 001-001 ./my-novel
+node dist/cli/index.js state check --chapter 001-001 ./my-novel
+```
+
+批量沉淀一卷或一个范围：
+
+```bash
+node dist/cli/index.js state settle --volume 001 ./my-novel
+node dist/cli/index.js state settle --from 001-001 --to 001-010 ./my-novel
+```
+
+### 6. 分析和评测
+
+节奏分析：
+
+```bash
+node dist/cli/index.js pacing --from 001-001 --to 001-010 ./my-novel
+```
+
+实验评测：
 
 ```bash
 node dist/cli/index.js experiment create --id opening-ab --goal "测试开篇钩子" ./my-novel
@@ -117,53 +163,77 @@ node dist/cli/index.js experiment generate --id opening-ab --variant hook-model 
 node dist/cli/index.js experiment run --id opening-ab --variant hook-a --input drafts/hook-a.md ./my-novel
 node dist/cli/index.js experiment score --id opening-ab --variant hook-a --payoff 8 --hook 9 --ai-flavor 2 ./my-novel
 node dist/cli/index.js experiment compare --id opening-ab --sort hook ./my-novel
+node dist/cli/index.js experiment diagnose --id opening-ab ./my-novel
 ```
 
-## 能力状态
+运行记录和成本：
 
-| 能力 | 状态 | 说明 |
-| --- | --- | --- |
-| 工作区初始化、配置校验、doctor | 可用 | doctor 使用极简 chat completion 检查 provider 连通性 |
-| 书籍/分卷/章节规划 | 可用 | 默认可编辑 deterministic draft；`--model` 可走 planning 路由生成 schema-validated draft |
-| 单章写作 | 可用 | 使用 context pack、章节卡和历史章节上下文生成 |
-| 上下文包 | 可用 | 支持 `context.maxTokens` 和 `--max-tokens` 覆盖 |
-| 状态账本 | 可用 | 支持初始化、inspect、delta settle 和一致性 check 报告 |
-| 审计与修订 | 可用 | 支持结构化审计/修订记录、路由运行记录和成本统计；质量仍需人工复核 |
-| 模型路由与成本 | 可用 | planning/drafting/audit/revise/settle/experiment 支持任务路由、fallback 和成本汇总 |
-| 实验评测 | 可用 | 支持模型生成候选稿、登记本地候选稿、人工评分和对比报告 |
-| Claude Code/宿主 LLM 集成 | 可用 | 支持 `--host-prompt` 导出写作 prompt，并用 `--input` 导入宿主模型生成的正文 |
+```bash
+node dist/cli/index.js run show ./my-novel
+node dist/cli/index.js model list ./my-novel
+node dist/cli/index.js cost report ./my-novel
+```
 
 ## 常用命令
+
+### 工作区和配置
 
 | 命令 | 用途 |
 | --- | --- |
 | `longgu init` | 初始化小说工作区 |
-| `longgu doctor` | 检查文件结构、配置、API key 和模型连接 |
-| `longgu plan book` | 生成开书规格草稿 |
-| `longgu plan volume --id 001` | 生成分卷规划草稿 |
-| `longgu plan chapters --volume 001` | 生成章节卡草稿 |
-| `longgu plan book --model` | 使用 planning 路由生成开书规格草稿 |
-| `longgu write chapter --id 001` | 生成章节正文 |
-| `longgu write chapter --id 001 --host-prompt` | 导出宿主 LLM 写作 prompt |
-| `longgu write chapter --id 001 --input drafts/001.md` | 导入宿主 LLM 生成的章节正文 |
-| `longgu state init` | 初始化状态账本 |
-| `longgu state inspect` | 查看状态账本 |
-| `longgu state check` | 生成状态一致性检查报告 |
-| `longgu settle chapter --id 001` | 将章节变化沉淀到状态账本 |
-| `longgu audit chapter --id 001` | 生成章节审计报告 |
-| `longgu revise chapter --id 001` | 根据审计结果修订章节 |
+| `longgu doctor` | 检查文件结构、配置、API key 和 provider 连通性 |
 | `longgu genre list` | 列出内置类型卡 |
 | `longgu genre show 玄幻` | 查看匹配后的类型卡 |
-| `longgu context build --chapter 001` | 生成章节上下文包 |
-| `longgu model list` | 列出模型 profile 和路由 |
+| `longgu model list` | 列出模型 profile 和任务路由 |
 | `longgu cost report` | 汇总 run 成本估算 |
+| `longgu run show` | 查看最近一次运行记录 |
+
+### 规划和上下文
+
+| 命令 | 用途 |
+| --- | --- |
+| `longgu plan book --scaffold` | 从 bible 提取开书规格脚手架 |
+| `longgu plan book --model` | 使用 planning 路由生成开书规格 |
+| `longgu plan volume --id 001 --scaffold` | 生成分卷规划脚手架 |
+| `longgu plan volume --id 001 --model` | 使用 planning 路由生成分卷规划 |
+| `longgu audit volume-plan --id 001` | 审计分卷规划是否可拆章 |
+| `longgu plan chapters --volume 001 --scaffold` | 生成章节卡脚手架 |
+| `longgu plan chapters --volume 001 --model` | 使用 planning 路由生成章节卡 |
+| `longgu audit chapter-plan --volume 001` | 审计章节卡是否可进入写作 |
+| `longgu context build --chapter 001-001` | 生成章节上下文包 |
+| `longgu context build --chapter 001-001 --human-readable` | 同时生成人类可读章节摘要卡 |
+
+### 写作、审计、修订
+
+| 命令 | 用途 |
+| --- | --- |
+| `longgu write chapter --id 001-001` | 通过 provider 生成章节正文 |
+| `longgu write chapter --id 001-001 --host-prompt` | 导出宿主 LLM 写作 prompt |
+| `longgu write chapter --id 001-001 --input drafts/001-001.md` | 导入宿主 LLM 生成的章节正文 |
+| `longgu write batch --from 001-001 --to 001-010 --host-prompt` | 批量导出宿主 LLM prompts |
+| `longgu write batch --from 001-001 --to 001-010 --input-dir drafts` | 批量导入宿主 LLM 正文 |
+| `longgu audit chapter --id 001-001` | 生成章节审计报告 |
+| `longgu revise chapter --id 001-001` | 根据审计结果修订章节 |
+| `longgu feedback chapter --id 001-001` | 记录章节人工反馈 |
+
+### 状态、节奏、实验
+
+| 命令 | 用途 |
+| --- | --- |
+| `longgu state init` | 初始化状态账本 |
+| `longgu state inspect` | 查看状态账本 |
+| `longgu settle chapter --id 001-001` | 沉淀单章状态变化 |
+| `longgu state settle --volume 001` | 批量沉淀一卷已有章节 |
+| `longgu state settle --from 001-001 --to 001-010` | 批量沉淀章节范围 |
+| `longgu state check --chapter 001-010` | 生成状态一致性检查报告 |
+| `longgu summarize chapter --id 001-001` | 生成结构化章节摘要 |
+| `longgu pacing --from 001-001 --to 001-010` | 生成跨章节奏分析 |
 | `longgu experiment create` | 创建实验 |
 | `longgu experiment generate` | 通过 experiment 路由生成候选稿 |
 | `longgu experiment run` | 登记本地候选稿 |
 | `longgu experiment score` | 写入候选稿人工评分 |
 | `longgu experiment compare` | 生成实验对比报告 |
-| `longgu feedback chapter --id 001` | 记录章节人工反馈 |
-| `longgu run show` | 查看最近一次运行记录 |
+| `longgu experiment diagnose` | 生成候选稿结构诊断 |
 
 ## 工作区结构
 
@@ -177,17 +247,29 @@ my-novel/
     characters.md
     world.md
     style.md
+    payoff-recipes.md
   outlines/
     book.draft.json
     volume-001.draft.json
     chapters-001.draft.json
   chapters/
-    001.md
+    001-001.md
+  drafts/
+    001-001.md
+  host-prompts/
+    001-001.prompt.md
+    001-001-001-010.batch.prompt.md
+  context/
+    001-001.context.json
+    001-001.context.md
+    001-001.brief.md
   audits/
-    001.audit.json
-    001.audit.md
+    volume-001.plan-audit.json
+    chapters-001.plan-audit.json
+    001-001.audit.json
+    001-001.audit.md
   revisions/
-    001/<timestamp>/
+    001-001/<timestamp>/
   state/
     truth.json
     characters.json
@@ -195,11 +277,15 @@ my-novel/
     hooks.json
     reader-promises.json
     resources.json
-  context/
-    001.context.json
-    001.context.md
-  host-prompts/
-    001.prompt.md
+    settlements/
+    checks/
+  summaries/
+    001-001.summary.json
+  pacing/
+    001-001-001-010.pacing.json
+    001-001-001-010.pacing.md
+  feedback/
+    001-001.feedback.json
   runs/
     <timestamp>/
   experiments/
@@ -208,12 +294,13 @@ my-novel/
 
 ## 配置
 
-基础配置文件是 `longgu.yaml`。如果只使用 `--host-prompt` 和 `--input` 宿主 LLM 工作流，可以省略 `provider`；如果要让 Longgu 自己调用外部模型，则需要配置 provider：
+基础配置文件是 `longgu.yaml`。如果只使用 `--host-prompt` 和 `--input` 宿主 LLM 工作流，可以省略 `provider`；如果要让 Longgu 自己调用外部模型，则需要配置 provider。
 
 ```yaml
 title: 未命名小说
 genre: 玄幻
 language: zh-CN
+
 provider:
   name: openai-compatible
   baseUrl: https://api.example.com/v1
@@ -221,19 +308,27 @@ provider:
   apiKeyEnv: OPENAI_API_KEY
   temperature: 0.8
   maxTokens: 3000
+
 context:
   maxTokens: 16000
+
 drafting:
   targetWords: 2500
+
+market:
+  platform: qidian
+  targetAudience: male-25-35
+  updateCadence: daily
 ```
 
-`provider.maxTokens` 控制单次模型输出预算。使用 reasoning model 时，如果看到“reasoning output”相关错误，优先提高这个值。
+字段说明：
 
-`context.maxTokens` 控制 context pack 的默认输入预算；命令行 `longgu context build --chapter 001 --max-tokens 24000` 会覆盖配置值。
+- `provider.maxTokens` 控制单次模型输出预算。使用 reasoning model 时，如果看到 reasoning-only 或空正文相关错误，优先提高这个值。
+- `context.maxTokens` 控制 context pack 默认输入预算；`longgu context build --max-tokens 24000` 会覆盖配置值。
+- `drafting.targetWords` 控制章节正文目标字数，会写入写作 prompt；导入宿主正文时也会用于字数偏差提示。
+- `market.platform` 支持 `qidian`、`fanqie`、`feilu`、`zongheng`，会作为 context/audit 的平台约束。
 
-`drafting.targetWords` 控制章节正文的目标字数，会写入写作 prompt；它不是硬截断上限，硬输出预算仍由 `provider.maxTokens` 控制。
-
-也可以配置多个模型 profile 和任务路由：
+多模型 profile 和任务路由：
 
 ```yaml
 models:
@@ -256,13 +351,58 @@ models:
       inputPer1K: 0.01
       outputPer1K: 0.03
 routes:
+  planning:
+    model: strong
   drafting:
     model: fast
     fallback: strong
     importantModel: strong
   audit:
     model: strong
+  revise:
+    model: strong
+  settle:
+    model: strong
+  experiment:
+    model: fast
 ```
+
+`bible/payoff-recipes.md` 用来把描述性设定变成可执行的创作约束：
+
+```markdown
+# 爽点配方
+
+## 核心爽点类型
+
+- [x] 反差打脸
+- [x] 降维打击
+- [x] 身份误会
+
+## 节奏约束
+
+- 最小爽点间隔：2500 字
+- 章尾必须保留钩子型爽点
+- CP 互动最低频率：每 3 章 1 场非任务互动
+
+## 名场面设计提示
+
+- 每卷至少设计 1 个读者会截图传播的场景
+```
+
+## 产物怎么读
+
+- `outlines/*.draft.json`：书、卷、章的结构化规划草稿。
+- `context/*.context.md`：给模型用的上下文包，带来源、优先级和估算 token。
+- `context/*.brief.md`：给人读的章节摘要卡，适合宿主 LLM 工作流。
+- `host-prompts/*.prompt.md`：可复制给宿主模型的写作 prompt。
+- `chapters/*.md`：章节正文。
+- `audits/*.audit.md`：章节质量审计报告。
+- `revisions/<chapter>/<timestamp>/`：修订前后文本、diff、prompt、输出和 metadata。
+- `state/*.json`：长篇连续性账本。
+- `state/settlements/`：每次状态沉淀的 before/after/delta/diff 记录。
+- `pacing/*.pacing.md`：跨章节奏分析报告。
+- `experiments/<id>/`：候选稿、评分、对比和诊断报告。
+- `runs/<timestamp>/`：每次模型调用或宿主导入的可审查运行记录。
 
 ## 示例项目
 
@@ -280,7 +420,7 @@ examples/xuanhuan-demo/
 npm run verify
 ```
 
-该命令会运行 TypeScript 类型检查、构建、测试和规格校验。
+该命令会运行 TypeScript 类型检查、构建、测试和项目校验。
 
 ## 许可
 
