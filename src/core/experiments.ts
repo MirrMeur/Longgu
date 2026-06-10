@@ -6,12 +6,14 @@ import type { LongguConfig } from "./config.js";
 import { loadLongguConfig } from "./config.js";
 import { runRoutedTextGeneration, type GenerateTextFn } from "./modelExecution.js";
 import type { RunMetadata } from "./runs.js";
+import { analyzeChapterPacing, ChapterPacingSchema } from "./pacing.js";
 import { pathExists } from "./workspace.js";
 
 const experimentSchemaVersion = z.literal("longgu.experiment.v0.9");
 const variantSchemaVersion = z.literal("longgu.experiment-variant.v0.9");
 const scoreSchemaVersion = z.literal("longgu.experiment-score.v0.9");
 const compareSchemaVersion = z.literal("longgu.experiment-compare.v0.9");
+const diagnoseSchemaVersion = z.literal("longgu.experiment-diagnose.v0.9");
 
 export const ExperimentSortKeySchema = z.enum(["payoff", "hook", "ai-flavor", "setting-conflict", "contract", "cost"]);
 
@@ -73,11 +75,34 @@ export const ExperimentCompareSchema = z.object({
   variants: z.array(ExperimentCompareItemSchema)
 });
 
+export const ExperimentDiagnosticItemSchema = z.object({
+  variantId: z.string().min(1),
+  outputFile: z.string().min(1),
+  hookStrength: z.number().min(0).max(10),
+  dialogueDensity: z.number().min(0).max(1),
+  payoffCueCount: z.number().int().nonnegative(),
+  tailHookQuality: z.enum(["strong", "weak"]),
+  readability: z.object({
+    averageSentenceLength: z.number().nonnegative(),
+    shortSentenceRatio: z.number().min(0).max(1)
+  }),
+  emotionalIntensity: z.number().min(0).max(10),
+  pacing: ChapterPacingSchema
+});
+
+export const ExperimentDiagnosticSchema = z.object({
+  schemaVersion: diagnoseSchemaVersion,
+  experimentId: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  variants: z.array(ExperimentDiagnosticItemSchema)
+});
+
 export type ExperimentSortKey = z.infer<typeof ExperimentSortKeySchema>;
 export type ExperimentManifest = z.infer<typeof ExperimentManifestSchema>;
 export type ExperimentVariantMetadata = z.infer<typeof ExperimentVariantMetadataSchema>;
 export type ExperimentScore = z.infer<typeof ExperimentScoreSchema>;
 export type ExperimentCompare = z.infer<typeof ExperimentCompareSchema>;
+export type ExperimentDiagnostic = z.infer<typeof ExperimentDiagnosticSchema>;
 
 export async function createExperiment(input: {
   workspaceDir: string;
@@ -269,6 +294,37 @@ export async function compareExperiment(input: {
   return { compare, jsonPath, markdownPath };
 }
 
+export async function diagnoseExperiment(input: {
+  workspaceDir: string;
+  experimentId: string;
+  now?: Date;
+}): Promise<{ diagnostic: ExperimentDiagnostic; jsonPath: string; markdownPath: string }> {
+  const experimentId = normalizeExperimentId(input.experimentId);
+  const manifest = await loadManifest(input.workspaceDir, experimentId);
+  const variants = [];
+  for (const variantId of manifest.variants) {
+    const variantDir = path.join(input.workspaceDir, "experiments", experimentId, "variants", variantId);
+    const metadata = ExperimentVariantMetadataSchema.parse(
+      JSON.parse(await readFile(path.join(variantDir, "metadata.json"), "utf8")) as unknown
+    );
+    const outputFile = path.join("experiments", experimentId, "variants", variantId, metadata.outputFile);
+    const text = await readFile(path.join(input.workspaceDir, outputFile), "utf8");
+    variants.push(diagnoseVariant(variantId, outputFile, text));
+  }
+  const diagnostic = ExperimentDiagnosticSchema.parse({
+    schemaVersion: "longgu.experiment-diagnose.v0.9",
+    experimentId,
+    generatedAt: (input.now ?? new Date()).toISOString(),
+    variants
+  });
+  const experimentDir = path.join(input.workspaceDir, "experiments", experimentId);
+  const jsonPath = path.join(experimentDir, "diagnose.json");
+  const markdownPath = path.join(experimentDir, "diagnose.md");
+  await writeJson(jsonPath, diagnostic);
+  await writeFile(markdownPath, renderDiagnosticMarkdown(diagnostic), "utf8");
+  return { diagnostic, jsonPath, markdownPath };
+}
+
 async function loadManifest(workspaceDir: string, experimentId: string): Promise<ExperimentManifest> {
   const manifestPath = path.join(workspaceDir, "experiments", experimentId, "manifest.json");
   const raw = await readFile(manifestPath, "utf8");
@@ -397,6 +453,56 @@ function renderCompareMarkdown(compare: ExperimentCompare): string {
 | Variant | Model | Payoff | Hook | AI Flavor | Contract | Missing | Setting Conflict | Cost | Note |
 | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
 ${rows || "| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | |"}
+`;
+}
+
+function diagnoseVariant(variantId: string, outputFile: string, text: string): z.infer<typeof ExperimentDiagnosticItemSchema> {
+  const pacing = analyzeChapterPacing(variantId, text);
+  const body = normalizeMarkdown(text);
+  const opening = body.slice(0, 300);
+  const sentences = body.split(/[。！？!?]/u).map((item) => item.trim()).filter(Boolean);
+  const sentenceLengths = sentences.map((sentence) => sentence.length);
+  const averageSentenceLength = sentenceLengths.length
+    ? sentenceLengths.reduce((sum, length) => sum + length, 0) / sentenceLengths.length
+    : 0;
+  const shortSentenceRatio = sentenceLengths.length
+    ? sentenceLengths.filter((length) => length <= 18).length / sentenceLengths.length
+    : 0;
+  const hookStrength = Math.min(
+    10,
+    (/(冲突|逼|杀|债|死|裂|黑|真相|秘密|跪|夺|逃|血|忽然|竟然)/u.test(opening) ? 5 : 0) +
+      Math.min(5, pacing.payoffCueCount + (pacing.hasCliffhanger ? 2 : 0))
+  );
+  return ExperimentDiagnosticItemSchema.parse({
+    variantId,
+    outputFile,
+    hookStrength,
+    dialogueDensity: pacing.dialogueDensity,
+    payoffCueCount: pacing.payoffCueCount,
+    tailHookQuality: pacing.hasCliffhanger ? "strong" : "weak",
+    readability: {
+      averageSentenceLength: Math.round(averageSentenceLength * 10) / 10,
+      shortSentenceRatio: Math.round(shortSentenceRatio * 100) / 100
+    },
+    emotionalIntensity: pacing.emotionalIntensity,
+    pacing
+  });
+}
+
+function renderDiagnosticMarkdown(diagnostic: ExperimentDiagnostic): string {
+  const rows = diagnostic.variants
+    .map(
+      (variant) =>
+        `| ${variant.variantId} | ${variant.hookStrength} | ${variant.dialogueDensity.toFixed(2)} | ${variant.payoffCueCount} | ${variant.tailHookQuality} | ${variant.readability.averageSentenceLength} | ${variant.emotionalIntensity} |`
+    )
+    .join("\n");
+  return `# Experiment Diagnose ${diagnostic.experimentId}
+
+- Generated at: ${diagnostic.generatedAt}
+
+| Variant | Opening Hook | Dialogue Density | Payoff Cues | Tail Hook | Avg Sentence | Emotion |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+${rows || "| n/a | n/a | n/a | n/a | n/a | n/a | n/a |"}
 `;
 }
 

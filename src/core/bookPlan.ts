@@ -207,6 +207,7 @@ type VolumePlanAuditInput = z.infer<typeof VolumePlanAuditInputSchema>;
 export async function createBookPlanDraft(input: {
   workspaceDir: string;
   force?: boolean;
+  scaffold?: boolean;
   model?: boolean;
   apiKey?: string;
   readApiKey?: (envName: string) => string;
@@ -259,6 +260,7 @@ export async function createBookPlanDraft(input: {
     })),
     generatedAt: (input.now ?? new Date()).toISOString()
   });
+  const scaffold = input.scaffold ? scaffoldBookPlan(seed, context) : seed;
   const modelResult = input.model
     ? await generatePlanningDraft({
         workspaceDir: input.workspaceDir,
@@ -268,7 +270,7 @@ export async function createBookPlanDraft(input: {
         prompt: renderPlanningPrompt({
           kind: "book",
           schemaVersion: "longgu.book-plan-draft.v0.2",
-          seed,
+          seed: scaffold,
           context: contextToPromptContext(sourceFiles, context),
           instruction: "完善全书规格，补足核心钩子、冲突阶梯、力量体系、读者承诺和留存风险。"
         }),
@@ -278,7 +280,7 @@ export async function createBookPlanDraft(input: {
         generate: input.generate
       })
     : undefined;
-  const draft = modelResult ? BookPlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : seed;
+  const draft = modelResult ? BookPlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : scaffold;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
@@ -367,6 +369,7 @@ export async function createVolumePlanDraft(input: {
   workspaceDir: string;
   volumeId: string;
   force?: boolean;
+  scaffold?: boolean;
   model?: boolean;
   apiKey?: string;
   readApiKey?: (envName: string) => string;
@@ -417,6 +420,7 @@ export async function createVolumePlanDraft(input: {
     generatedAt: (input.now ?? new Date()).toISOString()
   });
   const config = await loadLongguConfig(input.workspaceDir);
+  const scaffold = input.scaffold ? scaffoldVolumePlan(seed, bookPlan) : seed;
   const context = [
     { file: "outlines/book.draft.json", content: JSON.stringify(bookPlan, null, 2) },
     ...bookPlan.sourceDigest.map((item) => ({ file: item.file, content: item.excerpt }))
@@ -430,7 +434,7 @@ export async function createVolumePlanDraft(input: {
         prompt: renderPlanningPrompt({
           kind: "volume",
           schemaVersion: "longgu.volume-plan-draft.v0.2",
-          seed,
+          seed: scaffold,
           context,
           instruction: "基于全书规格完善该分卷目标、反派压力、冲突阶梯、资源变化、关键爽点和卷尾钩子。"
         }),
@@ -440,7 +444,7 @@ export async function createVolumePlanDraft(input: {
         generate: input.generate
       })
     : undefined;
-  const draft = modelResult ? VolumePlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : seed;
+  const draft = modelResult ? VolumePlanDraftSchema.parse(parseProviderJsonObject(modelResult.text, planningJsonMissingMessage)) : scaffold;
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
@@ -451,6 +455,7 @@ export async function createChaptersPlanDraft(input: {
   workspaceDir: string;
   volumeId: string;
   force?: boolean;
+  scaffold?: boolean;
   skipVolumeAudit?: boolean;
   model?: boolean;
   apiKey?: string;
@@ -477,6 +482,7 @@ export async function createChaptersPlanDraft(input: {
   }
 
   const volumePlan = await loadVolumePlanDraft(volumePlanPath);
+  const config = await loadLongguConfig(input.workspaceDir);
   const seed = ChaptersPlanDraftSchema.parse({
     schemaVersion: "longgu.chapters-plan-draft.v0.2",
     status: "draft",
@@ -485,7 +491,7 @@ export async function createChaptersPlanDraft(input: {
     genre: volumePlan.genre,
     volumePlanSource,
     chapterCount: volumePlan.chapterSeedCount,
-    chapters: createChapterCards(volumePlan),
+    chapters: createChapterCards(volumePlan, input.scaffold ? config.drafting?.targetWords : undefined),
     sourceFiles: [volumePlanSource, ...volumePlan.sourceFiles],
     sourceDigest: [
       {
@@ -496,7 +502,6 @@ export async function createChaptersPlanDraft(input: {
     ],
     generatedAt: (input.now ?? new Date()).toISOString()
   });
-  const config = await loadLongguConfig(input.workspaceDir);
   const context = [
     { file: volumePlanSource, content: JSON.stringify(volumePlan, null, 2) },
     ...volumePlan.sourceDigest.map((item) => ({ file: item.file, content: item.excerpt }))
@@ -610,7 +615,7 @@ function contextToPromptContext(
   }));
 }
 
-function createChapterCards(volumePlan: VolumePlanDraft): ChaptersPlanDraft["chapters"] {
+function createChapterCards(volumePlan: VolumePlanDraft, targetWords?: number): ChaptersPlanDraft["chapters"] {
   return Array.from({ length: volumePlan.chapterSeedCount }, (_, index) => {
     const chapterNumber = String(index + 1).padStart(3, "0");
     const stage = resolveConflictStage(volumePlan, index);
@@ -628,9 +633,100 @@ function createChapterCards(volumePlan: VolumePlanDraft): ChaptersPlanDraft["cha
         : `${volumePlan.primaryAntagonist || "对手"}的真实压力来源进一步显露。`,
       endingHook: finalChapter
         ? volumePlan.endingHook || "卷尾钩子抛出下一阶段更高压力。"
-        : `章尾留下与「${volumePlan.endingHook || volumePlan.volumeGoal || volumePlan.title}」相关的升级信号。`
+        : `章尾留下与「${volumePlan.endingHook || volumePlan.volumeGoal || volumePlan.title}」相关的升级信号。`,
+      targetWords
     };
   });
+}
+
+function scaffoldBookPlan(seed: BookPlanDraft, context: { file: string; content: string }[]): BookPlanDraft {
+  const premise = contextText(context, "premise.md");
+  const characters = contextText(context, "characters.md");
+  const world = contextText(context, "world.md");
+  const all = [premise, characters, world].join("\n");
+  const protagonistName = seed.protagonist.name || pickLabeledValue(characters, ["姓名", "主角"]) || firstChineseName(characters);
+  const sellingPoint = seed.premise.sellingPoint || pickLabeledValue(premise, ["读者承诺", "卖点"]) || firstMeaningfulLine(premise);
+  return BookPlanDraftSchema.parse({
+    ...seed,
+    premise: {
+      logline: seed.premise.logline || firstMeaningfulLine(premise) || `${protagonistName || "主角"}卷入核心冲突并完成逆转。`,
+      mainConflict: seed.premise.mainConflict || pickLabeledValue(premise, ["主线矛盾", "冲突"]) || "主角目标与外部压迫持续升级。",
+      sellingPoint: sellingPoint || "每章提供可见进展、压力反转和章尾钩子。"
+    },
+    protagonist: {
+      name: protagonistName || "主角",
+      desire: seed.protagonist.desire || pickLabeledValue(characters, ["欲望", "目标"]) || "摆脱当前困境并获得更高位置。",
+      flaw: seed.protagonist.flaw || pickLabeledValue(characters, ["弱点", "缺陷"]) || "对关键规则了解不足。",
+      cheat: seed.protagonist.cheat || pickLabeledValue(characters, ["金手指", "能力"]) || pickLabeledValue(world, ["核心资源"]) || "隐藏优势尚未完全暴露。"
+    },
+    coreHook: seed.coreHook || sellingPoint || firstMeaningfulLine(all) || "主角被低估后用隐藏优势完成反转。",
+    conflictLadder: [
+      { stage: "opening", pressure: "低位压迫和资源短缺逼主角入局。", payoff: "主角拿到第一份可见机会。" },
+      { stage: "middle", pressure: "对手升级规则和舆论压力。", payoff: "主角公开完成一次反转。" },
+      { stage: "finale", pressure: "更高层级势力介入并抬高代价。", payoff: "主角赢下阶段目标并抛出下一卷问题。" }
+    ],
+    powerSystem: {
+      rules: seed.powerSystem.rules || pickLabeledValue(world, ["世界基础规则", "规则"]) || "能力、资源和身份位置共同决定冲突结果。",
+      keyResources: seed.powerSystem.keyResources || pickLabeledValue(world, ["核心资源", "资源"]) || "资源、情报、身份认可。",
+      progression: seed.powerSystem.progression || "从自保到公开证明，再到掌握主动权。"
+    },
+    readerPromises: seed.readerPromises.length > 0 ? seed.readerPromises : [sellingPoint || "主角会持续完成可见逆转。"],
+    retentionRisks:
+      seed.retentionRisks.length > 0
+        ? seed.retentionRisks
+        : [{ risk: "设定解释过多导致推进变慢。", mitigation: "把规则说明压进冲突、选择和爽点兑现里。" }]
+  });
+}
+
+function scaffoldVolumePlan(seed: VolumePlanDraft, bookPlan: BookPlanDraft): VolumePlanDraft {
+  const pressure = bookPlan.conflictLadder[0]?.pressure || bookPlan.premise.mainConflict || "阶段对手持续施压。";
+  const payoff = bookPlan.conflictLadder[0]?.payoff || bookPlan.readerPromises[0] || "主角完成第一次公开逆转。";
+  return VolumePlanDraftSchema.parse({
+    ...seed,
+    volumeGoal: seed.volumeGoal || `${bookPlan.protagonist.name}围绕「${bookPlan.coreHook}」拿到阶段性胜利。`,
+    primaryAntagonist: seed.primaryAntagonist || "掌握资源和规则解释权的阶段对手",
+    conflictEscalation: [
+      { step: "opening", pressure, expectedPayoff: payoff },
+      { step: "middle", pressure: "对手加码资源封锁和公开质疑。", expectedPayoff: "主角用新信息或能力完成反制。" },
+      { step: "climax", pressure: "更高层级压力逼主角付出代价。", expectedPayoff: "主角赢下阶段目标并暴露更大隐患。" }
+    ],
+    resourceChanges:
+      seed.resourceChanges.length > 0
+        ? seed.resourceChanges
+        : [{ resource: bookPlan.powerSystem.keyResources || "关键资源", from: "匮乏", to: "取得第一份可用筹码" }],
+    keyPayoffs: seed.keyPayoffs.length > 0 ? seed.keyPayoffs : [payoff, "公开打破低估", "获得下一阶段资格或线索"],
+    endingHook: seed.endingHook || "胜利背后出现更高层级的注视和新问题。"
+  });
+}
+
+function contextText(context: { file: string; content: string }[], basename: string): string {
+  return context.find((item) => item.file.endsWith(basename))?.content ?? "";
+}
+
+function pickLabeledValue(text: string, labels: string[]): string {
+  for (const label of labels) {
+    const pattern = new RegExp(`${escapeRegExp(label)}\\s*[：:]\\s*([^\\n]+)`, "u");
+    const match = text.match(pattern);
+    const value = match?.[1]?.trim();
+    if (value) {
+      return value.replace(/^[-\s]+/, "");
+    }
+  }
+  return "";
+}
+
+function firstMeaningfulLine(text: string): string {
+  return (
+    text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^#+\s*/, "").trim())
+      .find((line) => line.length >= 6 && !line.endsWith("：") && !line.endsWith(":")) ?? ""
+  );
+}
+
+function firstChineseName(text: string): string {
+  const match = text.match(/[\u4e00-\u9fa5]{2,4}/u);
+  return match?.[0] ?? "";
 }
 
 function collectChapterPlanIssues(plan: ChaptersPlanDraft): ChapterPlanAuditIssue[] {

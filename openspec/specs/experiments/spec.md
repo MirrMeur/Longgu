@@ -27,17 +27,12 @@ The system SHALL persist human scores for an experiment variant.
 - **THEN** the system writes `experiments/opening-ab/variants/hook-a/scores.json`
 
 ### Requirement: Experiment comparison
-The system SHALL aggregate variant metadata, scores, audit data, chapter contract evidence, and costs into comparison reports.
+The system SHALL compare registered experiment variants with reviewable artifacts.
 
-#### Scenario: Compare variants
-- **WHEN** a user runs `longgu experiment compare --id opening-ab`
-- **THEN** the system writes `experiments/opening-ab/compare.json`
-- **THEN** the system writes `experiments/opening-ab/compare.md`
-
-#### Scenario: Compare variants with contract evidence
-- **WHEN** a variant metadata file links a chapter audit JSON that contains `contract`
-- **THEN** `longgu experiment compare` includes `auditContractStatus`, `auditContractMissingCount`, and `auditContractDiagnosis` for that variant in `compare.json`
-- **AND** `compare.md` includes the contract status and missing count
+#### Scenario: Diagnose experiment variants
+- **WHEN** a user runs `longgu experiment diagnose --id opening-ab`
+- **THEN** the system analyzes registered variant outputs
+- **AND** writes JSON and Markdown diagnostics for hook strength, dialogue density, payoff interval, tail-hook quality, readability, and emotional curve.
 
 ### Requirement: Comparison sorting
 The system SHALL support deterministic sorting for experiment comparison reports, including contract-aware ranking.

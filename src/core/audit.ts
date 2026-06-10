@@ -7,7 +7,7 @@ import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { runRoutedTextGeneration } from "./modelExecution.js";
 import { parseProviderJsonObject } from "./providerJson.js";
 import { stateLedgerFiles, loadStateLedger } from "./state.js";
-import { pathExists } from "./workspace.js";
+import { loadBibleContext, pathExists } from "./workspace.js";
 
 const auditSchemaVersion = z.literal("longgu.chapter-audit.v0.4");
 
@@ -29,7 +29,13 @@ const AuditDimensionSchema = z.enum([
   "ai-explanatory-tone",
   "cliche-density",
   "information-overreach",
-  "chapter-goal-drift"
+  "chapter-goal-drift",
+  "weak-opening-hook",
+  "flat-emotional-curve",
+  "missing-breath-scene",
+  "dialogue-desert",
+  "insufficient-cp-chemistry",
+  "weak-meme-hook"
 ]);
 
 const ScoreSchema = z.number().min(0).max(10);
@@ -346,6 +352,8 @@ interface AuditContext {
   chapterPlanText: string;
   stateText: string;
   genrePrompt: string;
+  payoffRecipesText: string;
+  marketText: string;
   sourceFiles: string[];
 }
 
@@ -363,6 +371,10 @@ async function loadAuditContext(input: {
   }
   const stateSnapshot = await loadStateSnapshot(input.workspaceDir);
   sourceFiles.push(...stateSnapshot.files);
+  const payoffRecipes = await loadPayoffRecipes(input.workspaceDir);
+  if (payoffRecipes) {
+    sourceFiles.push(payoffRecipes.file);
+  }
   return {
     chapterId: input.chapterId,
     config: input.config,
@@ -370,6 +382,8 @@ async function loadAuditContext(input: {
     chapterPlanText: chapterPlan?.content ?? "",
     stateText: stateSnapshot.content,
     genrePrompt: renderGenrePromptHints(resolveGenreCard(input.config.genre)),
+    payoffRecipesText: payoffRecipes?.content ?? "",
+    marketText: renderAuditMarketText(input.config),
     sourceFiles
   };
 }
@@ -407,7 +421,7 @@ function renderAuditPrompt(context: AuditContext): string {
 
 severity 可以直接写 critical/warning/info；也可以使用 checkerPriority P0/P1/P2，Longgu 会映射为 critical/warning/info。
 
-必须检查这些维度：role-ooc, timeline-conflict, setting-conflict, power-resource-collapse, hook-omission, weak-payoff, weak-ending-hook, summary-like-prose, ai-explanatory-tone, cliche-density, information-overreach, chapter-goal-drift。
+必须检查这些维度：role-ooc, timeline-conflict, setting-conflict, power-resource-collapse, hook-omission, weak-payoff, weak-ending-hook, summary-like-prose, ai-explanatory-tone, cliche-density, information-overreach, chapter-goal-drift, weak-opening-hook, flat-emotional-curve, missing-breath-scene, dialogue-desert, insufficient-cp-chemistry, weak-meme-hook。
 
 prose scores 必须包含 retention, readability, aiFlavor, scenePressure, characterVoice，范围 0-10。
 
@@ -424,6 +438,12 @@ ${context.chapterPlanText || "未找到章节规划。"}
 
 类型卡规则：
 ${context.genrePrompt}
+
+市场约束：
+${context.marketText || "未配置市场适配。"}
+
+爽点配方：
+${context.payoffRecipesText || "未提供 bible/payoff-recipes.md。"}
 
 状态账本：
 ${context.stateText || "未初始化状态账本。"}
@@ -450,6 +470,29 @@ function parseRawAuditFromText(text: string): RawChapterAudit {
   return RawChapterAuditSchema.parse(
     parseProviderJsonObject(text, "Chapter audit extraction failed: provider response did not contain a JSON object.")
   );
+}
+
+async function loadPayoffRecipes(workspaceDir: string): Promise<{ file: string; content: string } | null> {
+  const context = await loadBibleContext(workspaceDir).catch(() => []);
+  return context.find((item) => item.file === path.join("bible", "payoff-recipes.md")) ?? null;
+}
+
+function renderAuditMarketText(config: LongguConfig): string {
+  if (!config.market) {
+    return "";
+  }
+  const platformRules: Record<string, string> = {
+    fanqie: "番茄：前 3 章定生死，强开篇钩子、高频爽点、短平快兑现。",
+    qidian: "起点：可铺设定，但每章需要信息增量、智商博弈或阶段期待。",
+    feilu: "飞卢：脑洞密度和爽点频率优先，章首承接上一章爆点。",
+    zongheng: "纵横：强调主线压力、人物动机和阶段性升级。"
+  };
+  return [
+    `platform=${config.market.platform ?? "unspecified"}`,
+    `targetAudience=${config.market.targetAudience ?? "unspecified"}`,
+    `updateCadence=${config.market.updateCadence ?? "unspecified"}`,
+    config.market.platform ? platformRules[config.market.platform] : "按通用中文男频商业网文审计。"
+  ].join("\n");
 }
 
 function renderAuditMarkdown(audit: ChapterAudit): string {

@@ -4,7 +4,7 @@ export function parseProviderJsonObject(text: string, missingObjectMessage: stri
 
 export function extractProviderJsonObject(text: string, missingObjectMessage: string): string {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (fenced?.[1]) {
     return fenced[1];
   }

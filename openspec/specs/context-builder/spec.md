@@ -4,12 +4,21 @@
 TBD - created by archiving change v0-7-context-builder. Update Purpose after archive.
 ## Requirements
 ### Requirement: Context build command
-The system SHALL provide `longgu context build --chapter <id>` to build a reviewable context pack for a chapter.
+The system SHALL build reviewable context artifacts for chapter drafting and review.
 
-#### Scenario: Build chapter context
-- **WHEN** a user runs `longgu context build --chapter 001`
-- **THEN** the system writes `context/001.context.json`
-- **THEN** the system writes `context/001.context.md`
+#### Scenario: Human-readable brief
+- **WHEN** a user runs `longgu context build --chapter 005 --human-readable`
+- **THEN** the system writes `context/005.brief.md`
+- **AND** the brief contains chapter goal, previous summary, active hooks, due promises, style constraints, payoff recipes, market constraints, and tail-hook direction
+- **AND** the brief omits token budget calculations.
+
+#### Scenario: Payoff recipes in context
+- **WHEN** `bible/payoff-recipes.md` exists
+- **THEN** the system includes it as an explicit context section for drafting.
+
+#### Scenario: Market constraints in context
+- **WHEN** `longgu.yaml` contains market settings
+- **THEN** the system includes platform and cadence constraints in context.
 
 ### Requirement: Context pack schema
 The system SHALL validate context packs against a V0.7 schema.

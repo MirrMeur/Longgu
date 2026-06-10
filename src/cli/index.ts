@@ -16,18 +16,26 @@ import { buildChapterContext } from "../core/context.js";
 import {
   compareExperiment,
   createExperiment,
+  diagnoseExperiment,
   ExperimentSortKeySchema,
   generateExperimentVariant,
   registerExperimentVariant,
   scoreExperimentVariant
 } from "../core/experiments.js";
 import { recordChapterFeedback } from "../core/feedback.js";
-import { exportHostChapterPrompt, importHostChapterDraft, writeChapter } from "../core/generation.js";
+import {
+  exportHostBatchPrompt,
+  exportHostChapterPrompt,
+  importHostBatchDrafts,
+  importHostChapterDraft,
+  writeChapter
+} from "../core/generation.js";
 import { listGenreCards, resolveGenreCard } from "../core/genreCards.js";
 import { listModelProfiles } from "../core/modelRouting.js";
+import { analyzePacing } from "../core/pacing.js";
 import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
 import { buildCostReport, latestRun } from "../core/runs.js";
-import { checkState, initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
+import { checkState, initStateLedgers, inspectState, settleChapterState, settleChapterStateBatch } from "../core/state.js";
 import { summarizeChapter } from "../core/summary.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
 
@@ -114,6 +122,13 @@ write
           skipPlanAudit
         });
         console.log(`Imported chapter: ${result.chapterPath}`);
+        console.log(result.wordCount.message);
+        if (result.wordCount.status === "warning") {
+          console.log("Warning: imported chapter word count is outside +/-20% of target.");
+        }
+        if (result.wordCount.status === "error") {
+          console.log("Error: imported chapter word count is outside +/-40% of target.");
+        }
         console.log(`Run record: ${result.runDir}`);
         console.log(`Next: review chapters/${options.id}.md, then run longgu audit chapter --id ${options.id}.`);
         return;
@@ -131,6 +146,58 @@ write
       console.log(`Next: review chapters/${options.id}.md, then run longgu audit chapter --id ${options.id}.`);
     });
   });
+
+write
+  .command("batch")
+  .description("Export or import host-LLM chapter drafts in batch")
+  .requiredOption("--from <id>", "first chapter id")
+  .requiredOption("--to <id>", "last chapter id")
+  .option("--host-prompt", "write one combined host prompt file")
+  .option("--input-dir <dir>", "import host-generated Markdown files by chapter id")
+  .option("--skip-plan-audit", "bypass the chapter-plan audit gate")
+  .option("--force", "bypass chapter-plan audit blockers for prototype drafting")
+  .argument("[dir]", "workspace directory", ".")
+  .action(
+    async (
+      dir: string,
+      options: { from: string; to: string; hostPrompt?: boolean; inputDir?: string; skipPlanAudit?: boolean; force?: boolean }
+    ) => {
+      await runCli(async () => {
+        const workspaceDir = path.resolve(dir);
+        await checkWorkspace(workspaceDir);
+        const skipPlanAudit = options.skipPlanAudit || options.force;
+        if (options.hostPrompt && options.inputDir) {
+          throw new Error("--host-prompt cannot be used with --input-dir.");
+        }
+        if (!options.hostPrompt && !options.inputDir) {
+          throw new Error("write batch requires either --host-prompt or --input-dir.");
+        }
+        if (options.hostPrompt) {
+          const result = await exportHostBatchPrompt({
+            workspaceDir,
+            from: options.from,
+            to: options.to,
+            skipPlanAudit
+          });
+          console.log(`Host batch prompt: ${result.promptPath}`);
+          console.log(`Chapters: ${result.chapters.map((chapter) => chapter.chapterId).join(", ")}`);
+          return;
+        }
+        const result = await importHostBatchDrafts({
+          workspaceDir,
+          from: options.from,
+          to: options.to,
+          inputDir: options.inputDir!,
+          skipPlanAudit
+        });
+        console.log(`Imported chapters: ${result.results.length}`);
+        for (const item of result.results) {
+          console.log(`${item.chapterId}: ${item.chapterPath}`);
+          console.log(`  ${item.wordCount.message}`);
+        }
+      });
+    }
+  );
 
 const model = program.command("model").description("Inspect Longgu model routing");
 model
@@ -341,20 +408,38 @@ experiment
     });
   });
 
+experiment
+  .command("diagnose")
+  .description("Write rule-based diagnostics for experiment variants")
+  .requiredOption("--id <id>", "experiment id")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await diagnoseExperiment({ workspaceDir, experimentId: options.id });
+      console.log(`Diagnose JSON: ${result.jsonPath}`);
+      console.log(`Diagnose Markdown: ${result.markdownPath}`);
+      console.log(`Variants: ${result.diagnostic.variants.length}`);
+    });
+  });
+
 const plan = program.command("plan").description("Plan Longgu story artifacts");
 plan
   .command("book")
   .description("Create a structured book specification draft")
   .option("--force", "replace existing outlines/book.draft.json")
   .option("--model", "use the planning model route instead of deterministic draft generation")
+  .option("--scaffold", "fill deterministic draft fields from bible/*.md")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { force?: boolean; model?: boolean }) => {
+  .action(async (dir: string, options: { force?: boolean; model?: boolean; scaffold?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const result = await createBookPlanDraft({
         workspaceDir,
         force: options.force,
+        scaffold: options.scaffold,
         model: options.model,
         readApiKey: options.model ? readApiKey : undefined,
         generate: options.model ? generateWithOpenAICompatible : undefined
@@ -374,8 +459,9 @@ plan
   .requiredOption("--id <id>", "volume id, e.g. 001")
   .option("--force", "replace existing outlines/volume-<id>.draft.json")
   .option("--model", "use the planning model route instead of deterministic draft generation")
+  .option("--scaffold", "fill deterministic draft fields from bible and book plan")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { id: string; force?: boolean; model?: boolean }) => {
+  .action(async (dir: string, options: { id: string; force?: boolean; model?: boolean; scaffold?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
@@ -383,6 +469,7 @@ plan
         workspaceDir,
         volumeId: options.id,
         force: options.force,
+        scaffold: options.scaffold,
         model: options.model,
         readApiKey: options.model ? readApiKey : undefined,
         generate: options.model ? generateWithOpenAICompatible : undefined
@@ -402,9 +489,10 @@ plan
   .requiredOption("--volume <id>", "volume id, e.g. 001")
   .option("--force", "replace existing outlines/chapters-<volume>.draft.json")
   .option("--model", "use the planning model route instead of deterministic draft generation")
+  .option("--scaffold", "fill deterministic chapter cards with target words and concrete seeds")
   .option("--skip-volume-audit", "bypass the volume-plan audit gate")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { volume: string; force?: boolean; model?: boolean; skipVolumeAudit?: boolean }) => {
+  .action(async (dir: string, options: { volume: string; force?: boolean; model?: boolean; scaffold?: boolean; skipVolumeAudit?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
@@ -412,6 +500,7 @@ plan
         workspaceDir,
         volumeId: options.volume,
         force: options.force,
+        scaffold: options.scaffold,
         skipVolumeAudit: options.skipVolumeAudit,
         model: options.model,
         readApiKey: options.model ? readApiKey : undefined,
@@ -450,18 +539,23 @@ context
   .description("Build a V0.7 context pack for a chapter")
   .requiredOption("--chapter <id>", "chapter id, e.g. v1-001 or 001")
   .option("--max-tokens <number>", "estimated token budget", parsePositiveInteger)
+  .option("--human-readable", "also write a human-readable chapter brief")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { chapter: string; maxTokens?: number }) => {
+  .action(async (dir: string, options: { chapter: string; maxTokens?: number; humanReadable?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
       const result = await buildChapterContext({
         workspaceDir,
         chapterId: options.chapter,
-        maxTokens: options.maxTokens
+        maxTokens: options.maxTokens,
+        humanReadable: options.humanReadable
       });
       console.log(`Context JSON: ${result.jsonPath}`);
       console.log(`Context Markdown: ${result.markdownPath}`);
+      if (result.briefPath) {
+        console.log(`Context brief: ${result.briefPath}`);
+      }
       console.log(`Included sections: ${result.pack.includedSectionCount}/${result.pack.sections.length}`);
       console.log(`Estimated tokens: ${result.pack.estimatedTokens}/${result.pack.tokenBudget}`);
       console.log(`Next: inspect ${path.relative(workspaceDir, result.markdownPath)}, then run longgu write chapter --id ${options.chapter}.`);
@@ -573,6 +667,53 @@ state
       console.log(`State check Markdown: ${result.markdownPath}`);
       console.log(`Status: ${result.report.status}`);
       console.log(`Issues: ${result.report.issues.length}`);
+    });
+  });
+
+state
+  .command("settle")
+  .description("Batch apply chapter state deltas to V0.3 ledgers")
+  .option("--volume <id>", "settle all chapters in a volume, e.g. 001")
+  .option("--from <id>", "first chapter id")
+  .option("--to <id>", "last chapter id")
+  .option("--delta-dir <path>", "directory containing <chapter>.delta.json files; skips provider extraction")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { volume?: string; from?: string; to?: string; deltaDir?: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = options.deltaDir ? undefined : await loadConfigWithFriendlyErrors(workspaceDir);
+      const result = await settleChapterStateBatch({
+        workspaceDir,
+        volume: options.volume,
+        from: options.from,
+        to: options.to,
+        deltaDir: options.deltaDir,
+        config,
+        readApiKey,
+        generate: config ? generateWithOpenAICompatible : undefined
+      });
+      console.log(`Settled chapters: ${result.chapterIds.join(", ")}`);
+      for (const item of result.results) {
+        console.log(`${item.metadata.chapterId}: ${item.settlementDir}`);
+      }
+    });
+  });
+
+program
+  .command("pacing")
+  .description("Analyze cross-chapter pacing with deterministic rules")
+  .requiredOption("--from <id>", "first chapter id")
+  .requiredOption("--to <id>", "last chapter id")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { from: string; to: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const result = await analyzePacing({ workspaceDir, from: options.from, to: options.to });
+      console.log(`Pacing JSON: ${result.jsonPath}`);
+      console.log(`Pacing Markdown: ${result.markdownPath}`);
+      console.log(`Cliffhanger density: ${result.report.cliffhangerDensity.toFixed(2)}`);
     });
   });
 

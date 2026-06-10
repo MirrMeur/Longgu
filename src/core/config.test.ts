@@ -52,6 +52,33 @@ provider:
     expect(config.drafting!.targetWords).toBe(1800);
   });
 
+  it("loads optional market settings", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-config-market-"));
+    await writeFile(
+      path.join(dir, "longgu.yaml"),
+      `title: 测试小说
+genre: 玄幻
+market:
+  platform: fanqie
+  targetAudience: male-25-35
+  updateCadence: daily
+provider:
+  baseUrl: https://api.example.com/v1
+  model: test-model
+  apiKeyEnv: TEST_API_KEY
+`,
+      "utf8"
+    );
+
+    const config = await loadLongguConfig(dir);
+
+    expect(config.market).toEqual({
+      platform: "fanqie",
+      targetAudience: "male-25-35",
+      updateCadence: "daily"
+    });
+  });
+
   it("rejects missing provider fields", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-config-"));
     await writeFile(

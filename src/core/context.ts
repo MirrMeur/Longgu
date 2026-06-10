@@ -58,6 +58,7 @@ export interface BuildChapterContextResult {
   pack: ContextPack;
   jsonPath: string;
   markdownPath: string;
+  briefPath?: string;
 }
 
 interface ContextCandidate {
@@ -72,6 +73,7 @@ export async function buildChapterContext(input: {
   workspaceDir: string;
   chapterId: string;
   maxTokens?: number;
+  humanReadable?: boolean;
   now?: Date;
 }): Promise<BuildChapterContextResult> {
   const config = await loadLongguConfig(input.workspaceDir);
@@ -105,8 +107,13 @@ export async function buildChapterContext(input: {
   const markdownPath = path.join(outputDir, `${input.chapterId}.context.md`);
   await writeFile(jsonPath, `${JSON.stringify(pack, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, renderContextMarkdown(pack), "utf8");
+  let briefPath: string | undefined;
+  if (input.humanReadable) {
+    briefPath = path.join(outputDir, `${input.chapterId}.brief.md`);
+    await writeFile(briefPath, renderHumanBrief(pack), "utf8");
+  }
 
-  return { pack, jsonPath, markdownPath };
+  return { pack, jsonPath, markdownPath, briefPath };
 }
 
 export function applyTokenBudget(sections: ContextSection[], tokenBudget: number): ContextSection[] {
@@ -203,6 +210,16 @@ async function collectContextCandidates(workspaceDir: string, chapterId: string)
     content: renderGenrePromptHints(genreCard)
   });
 
+  if (config.market) {
+    candidates.push({
+      id: "market-constraints",
+      source: "longgu.yaml",
+      reason: "市场适配配置用于约束平台节奏、读者画像和更新频次。",
+      priority: "high",
+      content: renderMarketConstraints(config.market)
+    });
+  }
+
   if (styleSection) {
     candidates.push(styleSection);
   }
@@ -278,8 +295,11 @@ async function loadBibleSections(workspaceDir: string): Promise<ContextCandidate
     .map((item) => ({
       id: `bible-${path.basename(item.file, ".md")}`,
       source: item.file,
-      reason: `${item.file} 是 V0.1 基础项目资料，提供当前章节生成的底层设定。`,
-      priority: "medium",
+      reason:
+        item.file === path.join("bible", "payoff-recipes.md")
+          ? "爽点配方提供每章应触发的操作性爽点、节奏间隔和名场面约束。"
+          : `${item.file} 是 V0.1 基础项目资料，提供当前章节生成的底层设定。`,
+      priority: item.file === path.join("bible", "payoff-recipes.md") ? "high" : "medium",
       content: item.content
     }));
 }
@@ -512,6 +532,83 @@ ${section.content.trim()}
 
 ${sections}
 `;
+}
+
+function renderHumanBrief(pack: ContextPack): string {
+  const section = (id: string): string => pack.sections.find((item) => item.id === id && item.included)?.content.trim() ?? "";
+  const chapterCard = section("chapter-card");
+  const previous = pack.sections
+    .filter((item) => item.id.startsWith("previous-chapter-") || item.id.startsWith("summary-"))
+    .filter((item) => item.included)
+    .slice(0, 3)
+    .map((item) => `- ${item.source}: ${firstParagraph(item.content)}`)
+    .join("\n");
+  const activeHooks = pack.sections
+    .filter((item) => item.id.startsWith("state-hooks") || item.id.startsWith("state-reader-promises"))
+    .filter((item) => item.included)
+    .map((item) => `## ${item.id}\n\n${item.content.trim()}`)
+    .join("\n\n");
+  const style = section("style-constraints");
+  const payoff = section("bible-payoff-recipes");
+  const market = section("market-constraints");
+  return `# Chapter Brief ${pack.chapterId}
+
+## 本章目标
+
+${chapterCard || "未找到章节卡。"}
+
+## 前情提要
+
+${previous || "- 暂无前情摘要。"}
+
+## 活跃伏笔与需兑现承诺
+
+${activeHooks || "暂无状态账本中的活跃伏笔或读者承诺。"}
+
+## 文风约束
+
+${style || "未提供文风约束。"}
+
+## 爽点配方
+
+${payoff || "未提供 bible/payoff-recipes.md。"}
+
+## 市场约束
+
+${market || "未配置 market。"}
+
+## 章尾钩子方向
+
+${extractEndingHook(chapterCard) || "用一个具体的新问题、威胁或选择收束本章。"}
+`;
+}
+
+function renderMarketConstraints(market: NonNullable<Awaited<ReturnType<typeof loadLongguConfig>>["market"]>): string {
+  const platformRules: Record<string, string> = {
+    fanqie: "番茄：前 3 章尽快完成穿越/金手指/首个爽点/大钩子，单章节奏要快。",
+    qidian: "起点：允许设定铺垫，但每章需要明确的信息增量和阶段期待。",
+    feilu: "飞卢：强调脑洞密度、章首承接和高频爽点。",
+    zongheng: "纵横：强调主线推进、人物动机和阶段性冲突升级。"
+  };
+  return [
+    `platform: ${market.platform ?? "unspecified"}`,
+    `targetAudience: ${market.targetAudience ?? "unspecified"}`,
+    `updateCadence: ${market.updateCadence ?? "unspecified"}`,
+    market.platform ? platformRules[market.platform] : "未指定平台，按通用男频商业网文章节节奏处理。"
+  ].join("\n");
+}
+
+function firstParagraph(content: string): string {
+  return content
+    .split(/\n\s*\n/)
+    .map((item) => item.trim().replace(/\s+/g, " "))
+    .find(Boolean)
+    ?.slice(0, 240) ?? "";
+}
+
+function extractEndingHook(chapterCard: string): string {
+  const match = chapterCard.match(/"endingHook"\s*:\s*"([^"]+)"/);
+  return match?.[1] ?? "";
 }
 
 function includedTokens(sections: ContextSection[]): number {

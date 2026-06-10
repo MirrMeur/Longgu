@@ -344,6 +344,47 @@ describe("checkState", () => {
     expect(result.report.issues[0]?.reason).toContain("49 chapter(s) old");
   });
 
+  it("reports overdue active reader promises across volume-prefixed chapter ids", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-cross-volume-promise-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "reader-promises.json"),
+      `${JSON.stringify(
+        ReaderPromisesLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "reader-promises",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          promises: [
+            {
+              id: "promise-001-010",
+              text: "第一卷伏笔需要兑现",
+              status: "active",
+              sourceChapterId: "001-010"
+            }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      chapterId: "002-001",
+      promiseMaxAge: 5,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("needs-review");
+    expect(result.report.issues[0]?.id).toBe("reader-promises-promise-001-010-overdue");
+    expect(result.report.issues[0]?.reason).toContain("991 chapter(s) old");
+  });
+
   it("does not report active reader promise age without chapter context", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-promise-no-chapter-"));
     await createFixtureWorkspace(dir);

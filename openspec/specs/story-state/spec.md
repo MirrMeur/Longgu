@@ -70,28 +70,16 @@ The system SHALL validate chapter settlement inputs against a V0.3 state delta s
 - **THEN** no state ledgers are modified
 
 ### Requirement: Chapter settlement command
-The system SHALL provide `longgu settle chapter --id <id>` to extract validated state deltas from chapter prose and apply them to story state ledgers.
+The system SHALL apply chapter state deltas in chapter order.
 
-#### Scenario: Apply model-extracted chapter delta
-- **WHEN** a user runs `longgu settle chapter --id 001`
-- **AND** `chapters/001.md` exists
-- **AND** the configured provider returns valid conflict-free state delta JSON
-- **THEN** the system validates the returned delta
-- **THEN** the system updates the relevant state ledgers by id-based upsert
-- **THEN** the system reports the settlement record path
+#### Scenario: Batch settle by range
+- **WHEN** a user runs state settlement with `--from 001 --to 010`
+- **THEN** the system settles chapters in ascending chapter id order
+- **AND** each chapter observes ledgers updated by previous settled chapters.
 
-#### Scenario: Apply provided chapter delta
-- **WHEN** a user runs `longgu settle chapter --id 001 --delta state/deltas/001.delta.json`
-- **AND** `chapters/001.md` exists
-- **AND** the provided delta is valid and conflict-free
-- **THEN** the system updates the relevant state ledgers by id-based upsert
-- **THEN** the system reports the settlement record path
-
-#### Scenario: Missing chapter body
-- **WHEN** a user settles chapter `001`
-- **AND** `chapters/001.md` does not exist
-- **THEN** the system reports the missing chapter
-- **THEN** no state ledgers are modified
+#### Scenario: Batch settle by volume
+- **WHEN** a user runs state settlement with `--volume 001`
+- **THEN** the system settles existing `chapters/001-*.md` files in ascending chapter id order.
 
 ### Requirement: State delta merge safety
 The system SHALL merge state deltas by item id and SHALL NOT let a delta replace whole ledger files directly.
@@ -178,58 +166,16 @@ The system SHALL retry model-generated state delta extraction once when the firs
 - **THEN** no success settlement record is written
 
 ### Requirement: State consistency check command
-The system SHALL provide `longgu state check` to validate story state ledgers, detect reader promise debt when chapter context is provided, detect cross-chapter continuity drift in settled state, and write reviewable consistency reports.
+The system SHALL check state ledgers for cross-ledger consistency and reader promise debt.
 
-#### Scenario: Write state check report
-- **WHEN** a user runs `longgu state check` in a workspace with valid state ledgers
-- **THEN** the system writes `state/checks/<timestamp>.json`
-- **AND** the system writes `state/checks/<timestamp>.md`
-- **AND** the JSON report contains schema version, status, issue list, checked ledger files, and generated time
+#### Scenario: Cross-volume reader promise age
+- **WHEN** a reader promise was opened in chapter `001-010`
+- **AND** the current chapter is `002-001`
+- **THEN** the system treats `002-001` as later than `001-010`
+- **AND** overdue promise checks use a positive cross-volume age.
 
-#### Scenario: Detect dangling state references
-- **WHEN** resources or relationships reference missing character ids
-- **THEN** the report status is `needs-review`
-- **AND** the issue list identifies the ledger, item id, severity, and reason
-
-#### Scenario: Detect character role drift
-- **WHEN** settled facts or timeline events associate one character with conflicting role terms
-- **THEN** the report status is `needs-review`
-- **AND** the issue list identifies that character drift
-
-#### Scenario: Detect timeline order regression
-- **WHEN** timeline event order places a later chapter before an earlier chapter
-- **THEN** the report status is `needs-review`
-- **AND** the issue list identifies the timeline event
-
-#### Scenario: Detect repeated timeline events
-- **WHEN** different chapters contain highly similar timeline event summaries
-- **THEN** the report status is `needs-review`
-- **AND** the issue list identifies the likely duplicate event
-
-#### Scenario: Detect first-time wording drift
-- **WHEN** a later timeline event uses first-time wording and resembles an earlier event
-- **THEN** the report status is `needs-review`
-- **AND** the issue list identifies the timeline event as possible continuity drift
-
-#### Scenario: Pass clean state
-- **WHEN** all ledgers validate and no consistency issue is found
-- **THEN** the report status is `passed`
-
-#### Scenario: Detect overdue active reader promise
-- **WHEN** a user runs `longgu state check --chapter 008 --promise-max-age 5`
-- **AND** `state/reader-promises.json` contains an active promise opened in chapter `001`
-- **THEN** the report status is `needs-review`
-- **AND** the issue list contains a warning for that reader promise
-- **AND** the Markdown report includes the overdue promise reason
-
-#### Scenario: Detect overdue active reader promise with generated chapter ids
-- **WHEN** a user runs `longgu state check --chapter v1-050 --promise-max-age 5`
-- **AND** `state/reader-promises.json` contains an active promise opened in chapter `v1-001`
-- **THEN** the report status is `needs-review`
-- **AND** the issue list contains a warning for that reader promise
-
-#### Scenario: Omit promise debt check without current chapter
-- **WHEN** a user runs `longgu state check` without `--chapter`
-- **AND** `state/reader-promises.json` contains active promises
-- **THEN** the system does not flag promise age solely from missing chapter context
+#### Scenario: Timeline tie-break uses chapter ordering
+- **WHEN** timeline events have equal `order` values
+- **THEN** the system sorts them by natural chapter id order
+- **AND** chapter `9` is ordered before chapter `10`.
 

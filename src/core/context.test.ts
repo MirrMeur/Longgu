@@ -220,4 +220,38 @@ describe("chapter context builder", () => {
     expect(feedback).toMatchObject({ source: "feedback/001.feedback.json", priority: "medium", included: true });
     expect(feedback?.content).toContain("情节推进太慢");
   });
+
+  it("writes a human-readable brief with market and payoff recipe context", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-context-brief-"));
+    await createPlanningStateFixture(dir);
+    await writeFile(
+      path.join(dir, "longgu.yaml"),
+      `title: 测试小说
+genre: 玄幻
+language: zh-CN
+context:
+  maxTokens: 16000
+market:
+  platform: fanqie
+  targetAudience: male-25-35
+  updateCadence: daily
+`,
+      "utf8"
+    );
+    await writeFile(path.join(dir, "bible", "payoff-recipes.md"), "# 爽点配方\n\n每章至少一个反差打脸。\n", "utf8");
+
+    const result = await buildChapterContext({
+      workspaceDir: dir,
+      chapterId: "001",
+      humanReadable: true,
+      now: new Date("2026-06-09T13:00:00.000Z")
+    });
+
+    expect(result.briefPath).toBe(path.join(dir, "context", "001.brief.md"));
+    const brief = await readFile(result.briefPath!, "utf8");
+    expect(brief).toContain("## 本章目标");
+    expect(brief).toContain("反差打脸");
+    expect(brief).toContain("platform: fanqie");
+    expect(brief).not.toContain("Token budget");
+  });
 });

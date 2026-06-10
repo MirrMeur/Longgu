@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { requireProviderBackedConfig, type LongguConfig, type ProviderBackedLongguConfig } from "./config.js";
@@ -177,6 +177,11 @@ export interface StateSettlementResult {
   settlementDir: string;
   diff: LedgerDiff[];
   metadata: StateSettlementMetadata;
+}
+
+export interface BatchStateSettlementResult {
+  chapterIds: string[];
+  results: StateSettlementResult[];
 }
 
 export const StateCheckIssueSchema = z.object({
@@ -374,6 +379,38 @@ export async function settleChapterState(input: {
   });
 
   return { settlementDir, diff, metadata };
+}
+
+export async function settleChapterStateBatch(input: {
+  workspaceDir: string;
+  from?: string;
+  to?: string;
+  volume?: string;
+  deltaDir?: string;
+  config?: LongguConfig;
+  apiKey?: string;
+  readApiKey?: (envName: string) => string;
+  generate?: GenerateStateDeltaFn;
+  now?: Date;
+}): Promise<BatchStateSettlementResult> {
+  const chapterIds = await resolveBatchSettlementChapterIds(input);
+  const results: StateSettlementResult[] = [];
+  for (const chapterId of chapterIds) {
+    const deltaPath = input.deltaDir ? path.join(input.deltaDir, `${chapterId}.delta.json`) : undefined;
+    results.push(
+      await settleChapterState({
+        workspaceDir: input.workspaceDir,
+        chapterId,
+        deltaPath,
+        config: input.config,
+        apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
+        generate: input.generate,
+        now: input.now
+      })
+    );
+  }
+  return { chapterIds, results };
 }
 
 function createBaselineLedgers(now: Date): [string, StateLedger][] {
@@ -765,7 +802,7 @@ function detectCharacterRoleDrift(input: {
 
 function detectTimelineDrift(events: TimelineLedger["events"]): StateCheckIssue[] {
   const issues: StateCheckIssue[] = [];
-  const byOrder = [...events].sort((left, right) => left.order - right.order || left.chapterId.localeCompare(right.chapterId));
+  const byOrder = [...events].sort((left, right) => left.order - right.order || compareChapterIds(left.chapterId, right.chapterId));
   let maxChapterNumber = -1;
   let maxChapterId = "";
   for (const event of byOrder) {
@@ -830,11 +867,11 @@ function detectTimelineDrift(events: TimelineLedger["events"]): StateCheckIssue[
 
 function parseChapterNumber(chapterId: string): number | undefined {
   const normalized = chapterId.trim();
-  const match = normalized.match(/^(?:.+-)?(\d+)$/);
-  if (!match) {
+  const parts = normalized.match(/\d+/g);
+  if (!parts || parts.length === 0) {
     return undefined;
   }
-  return Number.parseInt(match[1], 10);
+  return parts.reduce((sum, part) => sum * 1000 + Number.parseInt(part, 10), 0);
 }
 
 function compareChapterIds(left: string, right: string): number {
@@ -869,6 +906,34 @@ function characterBigrams(value: string): Set<string> {
     grams.add(normalized.slice(index, index + 2));
   }
   return grams;
+}
+
+async function resolveBatchSettlementChapterIds(input: {
+  workspaceDir: string;
+  from?: string;
+  to?: string;
+  volume?: string;
+}): Promise<string[]> {
+  if (input.volume && (input.from || input.to)) {
+    throw new Error("--volume cannot be combined with --from/--to for batch settlement.");
+  }
+  const chaptersDir = path.join(input.workspaceDir, "chapters");
+  const files = (await readdir(chaptersDir).catch(() => []))
+    .filter((entry) => entry.endsWith(".md"))
+    .map((entry) => entry.slice(0, -".md".length));
+  let chapterIds: string[];
+  if (input.volume) {
+    chapterIds = files.filter((id) => id === input.volume || id.startsWith(`${input.volume}-`));
+  } else if (input.from && input.to) {
+    chapterIds = files.filter((id) => compareChapterIds(id, input.from!) >= 0 && compareChapterIds(id, input.to!) <= 0);
+  } else {
+    throw new Error("Batch settlement requires either --volume or both --from and --to.");
+  }
+  chapterIds.sort(compareChapterIds);
+  if (chapterIds.length === 0) {
+    throw new Error("No chapter files matched the batch settlement selector.");
+  }
+  return chapterIds;
 }
 
 function renderStateCheckMarkdown(report: StateCheckReport): string {

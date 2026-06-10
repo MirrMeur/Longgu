@@ -6,6 +6,7 @@ import { createFixtureWorkspace } from "../test/testUtils.js";
 import {
   compareExperiment,
   createExperiment,
+  diagnoseExperiment,
   ExperimentCompareSchema,
   generateExperimentVariant,
   registerExperimentVariant,
@@ -192,6 +193,34 @@ describe("experiments", () => {
       now: new Date("2026-06-09T12:02:00.000Z")
     });
     expect(compared.compare.variants.map((variant) => variant.variantId)).toEqual(["hook-a"]);
+  });
+
+  it("diagnoses experiment variants with rule-based pacing signals", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-experiment-diagnose-"));
+    await createFixtureWorkspace(dir);
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+    await writeFile(path.join(dir, "drafts", "hook-a.md"), "# A\n\n陆沉被逼上台。执事冷笑：「跪下！」陆沉夺回灵石，测试石忽然裂开？\n", "utf8");
+    await createExperiment({
+      workspaceDir: dir,
+      id: "opening-ab",
+      goal: "测试开篇钩子"
+    });
+    await registerExperimentVariant({
+      workspaceDir: dir,
+      experimentId: "opening-ab",
+      variantId: "hook-a",
+      inputPath: "drafts/hook-a.md"
+    });
+
+    const result = await diagnoseExperiment({
+      workspaceDir: dir,
+      experimentId: "opening-ab",
+      now: new Date("2026-06-09T12:05:00.000Z")
+    });
+
+    expect(result.diagnostic.variants[0]?.hookStrength).toBeGreaterThan(0);
+    expect(result.diagnostic.variants[0]?.tailHookQuality).toBe("strong");
+    await expect(readFile(result.markdownPath, "utf8")).resolves.toContain("| hook-a |");
   });
 });
 

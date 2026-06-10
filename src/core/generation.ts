@@ -15,6 +15,14 @@ export type GenerateChapterFn = (request: {
   apiKey: string;
 }) => Promise<GenerateResult>;
 
+export interface WordCountReport {
+  actualWords: number;
+  targetWords?: number;
+  deviationRatio?: number;
+  status: "ok" | "warning" | "error" | "unknown-target";
+  message: string;
+}
+
 export async function writeChapter(input: {
   workspaceDir: string;
   chapterId: string;
@@ -69,7 +77,7 @@ export async function importHostChapterDraft(input: {
   inputPath: string;
   skipPlanAudit?: boolean;
   now?: Date;
-}): Promise<{ chapterPath: string; runDir: string }> {
+}): Promise<{ chapterPath: string; runDir: string; wordCount: WordCountReport }> {
   const startedAt = input.now ?? new Date();
   const draftInput = await prepareChapterDraftingInput(input.workspaceDir, input.chapterId, {
     skipPlanAudit: input.skipPlanAudit
@@ -122,7 +130,60 @@ export async function importHostChapterDraft(input: {
       ]
     }
   });
-  return { chapterPath, runDir: run.dir };
+  return { chapterPath, runDir: run.dir, wordCount: createWordCountReport(chapterText, draftInput.targetWords) };
+}
+
+export async function exportHostBatchPrompt(input: {
+  workspaceDir: string;
+  from: string;
+  to: string;
+  skipPlanAudit?: boolean;
+}): Promise<{ promptPath: string; chapters: { chapterId: string; promptPath: string; contextJsonPath: string; contextMarkdownPath: string }[] }> {
+  const chapterIds = expandChapterIdRange(input.from, input.to);
+  const chapters = [];
+  const parts = [];
+  for (const chapterId of chapterIds) {
+    const result = await exportHostChapterPrompt({
+      workspaceDir: input.workspaceDir,
+      chapterId,
+      skipPlanAudit: input.skipPlanAudit
+    });
+    const resolvedId = path.basename(result.promptPath, ".prompt.md");
+    chapters.push({ chapterId: resolvedId, ...result });
+    parts.push(`## ${resolvedId}\n\n${await readFile(result.promptPath, "utf8")}`);
+  }
+  const outputDir = path.join(input.workspaceDir, "host-prompts");
+  await mkdir(outputDir, { recursive: true });
+  const promptPath = path.join(outputDir, `${input.from}-${input.to}.batch.prompt.md`);
+  await writeFile(promptPath, `${parts.join("\n\n---\n\n")}\n`, "utf8");
+  return { promptPath, chapters };
+}
+
+export async function importHostBatchDrafts(input: {
+  workspaceDir: string;
+  from: string;
+  to: string;
+  inputDir: string;
+  skipPlanAudit?: boolean;
+  now?: Date;
+}): Promise<{ results: { chapterId: string; chapterPath: string; runDir: string; wordCount: WordCountReport }[] }> {
+  const inputDir = resolveWorkspacePath(input.workspaceDir, input.inputDir);
+  const results = [];
+  for (const chapterId of expandChapterIdRange(input.from, input.to)) {
+    const draftInput = await prepareChapterDraftingInput(input.workspaceDir, chapterId, {
+      skipPlanAudit: input.skipPlanAudit
+    });
+    const inputPath = await resolveBatchDraftPath(inputDir, chapterId, draftInput.chapterId);
+    const result = await importHostChapterDraft({
+      workspaceDir: input.workspaceDir,
+      chapterId,
+      inputPath,
+      skipPlanAudit: input.skipPlanAudit,
+      now: input.now
+    });
+    results.push({ chapterId: draftInput.chapterId, ...result });
+  }
+  return { results };
 }
 
 async function prepareChapterDraftingInput(
@@ -135,6 +196,7 @@ async function prepareChapterDraftingInput(
   context: { file: string; content: string }[];
   prompt: string;
   chapterTitle?: string;
+  targetWords?: number;
   contextJsonPath: string;
   contextMarkdownPath: string;
 }> {
@@ -158,6 +220,7 @@ async function prepareChapterDraftingInput(
     context,
     prompt,
     chapterTitle: chapterCard?.chapter.title,
+    targetWords: chapterCard?.chapter.targetWords ?? config.drafting?.targetWords,
     contextJsonPath: contextResult.jsonPath,
     contextMarkdownPath: contextResult.markdownPath
   };
@@ -334,4 +397,63 @@ ${input.previousOutput}`;
 
 function resolveWorkspacePath(workspaceDir: string, inputPath: string): string {
   return path.isAbsolute(inputPath) ? inputPath : path.join(workspaceDir, inputPath);
+}
+
+function createWordCountReport(text: string, targetWords?: number): WordCountReport {
+  const actualWords = countChineseStoryWords(text);
+  if (!targetWords) {
+    return {
+      actualWords,
+      status: "unknown-target",
+      message: `字数: ${actualWords} / 未设置目标`
+    };
+  }
+  const deviationRatio = (actualWords - targetWords) / targetWords;
+  const absolute = Math.abs(deviationRatio);
+  const status = absolute > 0.4 ? "error" : absolute > 0.2 ? "warning" : "ok";
+  const direction = deviationRatio >= 0 ? "高于目标" : "低于目标";
+  return {
+    actualWords,
+    targetWords,
+    deviationRatio,
+    status,
+    message: `字数: ${actualWords} / 目标 ${targetWords}（偏差 ${Math.round(absolute * 100)}%，${direction}）`
+  };
+}
+
+function countChineseStoryWords(text: string): number {
+  const body = text.replace(/^#.*$/gm, "").trim();
+  const chineseChars = body.match(/[\u4e00-\u9fff]/gu)?.length ?? 0;
+  const latinWords = body.match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*/g)?.length ?? 0;
+  return chineseChars + latinWords;
+}
+
+function expandChapterIdRange(from: string, to: string): string[] {
+  const fromMatch = from.match(/^(.*?)(\d+)$/);
+  const toMatch = to.match(/^(.*?)(\d+)$/);
+  if (!fromMatch || !toMatch || fromMatch[1] !== toMatch[1]) {
+    throw new Error("--from and --to must share the same non-numeric prefix.");
+  }
+  const start = Number.parseInt(fromMatch[2], 10);
+  const end = Number.parseInt(toMatch[2], 10);
+  if (end < start) {
+    throw new Error("--to must be greater than or equal to --from.");
+  }
+  const width = Math.max(fromMatch[2].length, toMatch[2].length);
+  return Array.from({ length: end - start + 1 }, (_, index) => `${fromMatch[1]}${String(start + index).padStart(width, "0")}`);
+}
+
+async function resolveBatchDraftPath(inputDir: string, requestedId: string, resolvedId: string): Promise<string> {
+  const candidates = [
+    path.join(inputDir, `${resolvedId}.md`),
+    path.join(inputDir, `${requestedId}.md`),
+    path.join(inputDir, `${resolvedId}.markdown`),
+    path.join(inputDir, `${requestedId}.markdown`)
+  ];
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(`No host draft found for ${resolvedId} in ${inputDir}. Expected ${resolvedId}.md.`);
 }

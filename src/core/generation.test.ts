@@ -9,7 +9,7 @@ import {
   createRoutingFixtureWorkspace
 } from "../test/testUtils.js";
 import { latestRun } from "./runs.js";
-import { exportHostChapterPrompt, importHostChapterDraft, writeChapter } from "./generation.js";
+import { exportHostBatchPrompt, exportHostChapterPrompt, importHostBatchDrafts, importHostChapterDraft, writeChapter } from "./generation.js";
 
 describe("writeChapter", () => {
   it("writes a chapter and successful run record with a fake provider", async () => {
@@ -283,6 +283,54 @@ describe("writeChapter", () => {
         generate: async () => ({ text: "# 不应写入\n\n正文。" })
       })
     ).rejects.toThrow("Ambiguous chapter id");
+  });
+
+  it("reports word-count fit when importing a host chapter", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-host-word-count-"));
+    await createPlanningStateFixture(dir);
+    const chapterPlanPath = path.join(dir, "outlines", "chapters-001.draft.json");
+    const chapterPlan = JSON.parse(await readFile(chapterPlanPath, "utf8")) as { chapters: Array<{ targetWords?: number }> };
+    chapterPlan.chapters[0].targetWords = 10;
+    await writeFile(chapterPlanPath, `${JSON.stringify(chapterPlan, null, 2)}\n`, "utf8");
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+    await writeFile(path.join(dir, "drafts", "001.md"), "陆沉夺回灵石，众人震惊。", "utf8");
+
+    const result = await importHostChapterDraft({
+      workspaceDir: dir,
+      chapterId: "001",
+      inputPath: "drafts/001.md"
+    });
+
+    expect(result.wordCount.actualWords).toBeGreaterThan(0);
+    expect(result.wordCount.targetWords).toBe(10);
+    expect(result.wordCount.message).toContain("目标 10");
+  });
+
+  it("exports and imports host chapter batches", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-write-host-batch-"));
+    await createPlanningStateFixture(dir);
+
+    const exported = await exportHostBatchPrompt({
+      workspaceDir: dir,
+      from: "001",
+      to: "002"
+    });
+
+    expect(exported.chapters.map((chapter) => chapter.chapterId)).toEqual(["001", "002"]);
+    await expect(readFile(exported.promptPath, "utf8")).resolves.toContain("\n---\n");
+
+    await mkdir(path.join(dir, "drafts"), { recursive: true });
+    await writeFile(path.join(dir, "drafts", "001.md"), "第一章导入正文。", "utf8");
+    await writeFile(path.join(dir, "drafts", "002.md"), "第二章导入正文。", "utf8");
+    const imported = await importHostBatchDrafts({
+      workspaceDir: dir,
+      from: "001",
+      to: "002",
+      inputDir: "drafts"
+    });
+
+    expect(imported.results.map((item) => item.chapterId)).toEqual(["001", "002"]);
+    await expect(readFile(path.join(dir, "chapters", "002.md"), "utf8")).resolves.toContain("第二章导入正文");
   });
 
   it("rejects unmatched ids when chapter plans exist unless skipped", async () => {

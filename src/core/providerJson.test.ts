@@ -6,6 +6,10 @@ describe("provider JSON parsing", () => {
     expect(parseProviderJsonObject('```json\n{"ok":true}\n```', "missing")).toEqual({ ok: true });
   });
 
+  it("extracts the first fenced JSON object even with trailing prose", () => {
+    expect(extractProviderJsonObject('```json\n{"ok":true}\n```\nHope this helps {"bad":true}', "missing")).toBe('{"ok":true}');
+  });
+
   it("extracts JSON surrounded by provider prose", () => {
     expect(extractProviderJsonObject('说明：\n{"id":"001","summary":"完成"}\n请检查。', "missing")).toBe(
       '{"id":"001","summary":"完成"}'

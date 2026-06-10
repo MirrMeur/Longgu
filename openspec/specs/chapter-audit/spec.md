@@ -79,11 +79,15 @@ The system SHALL normalize checker-style priorities into Longgu audit severities
 - **THEN** the final issue severity is `info`
 
 ### Requirement: Chapter audit dimensions
-The system SHALL support the first V0.4 audit dimensions from the roadmap.
+The system SHALL audit chapters against consistency, prose, contract, and payoff-engineering dimensions.
 
-#### Scenario: Supported dimensions
-- **WHEN** a final audit is produced
-- **THEN** issues may use dimensions for role OOC, timeline conflict, setting conflict, power or resource collapse, hook omission, weak payoff, weak chapter ending hook, summary-like prose, AI explanatory tone, cliche density, information overreach, and chapter goal drift
+#### Scenario: Payoff-engineering dimensions are accepted
+- **WHEN** a raw audit issue uses dimension `weak-opening-hook`, `flat-emotional-curve`, `missing-breath-scene`, `dialogue-desert`, `insufficient-cp-chemistry`, or `weak-meme-hook`
+- **THEN** the system accepts and normalizes the issue.
+
+#### Scenario: Payoff and market constraints guide audit
+- **WHEN** payoff recipes or market config exist
+- **THEN** the audit prompt includes those constraints as review criteria.
 
 ### Requirement: Prose audit metrics
 The system SHALL include prose quality metrics derived from the prose checker domain.

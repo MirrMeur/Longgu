@@ -150,6 +150,22 @@ describe("createBookPlanDraft", () => {
     expect(run?.metadata.task).toBe("planning");
     expect(run?.metadata.modelProfile).toBe("default");
   });
+
+  it("scaffolds non-empty book planning fields from bible files", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-book-scaffold-"));
+    await createFixtureWorkspace(dir);
+
+    const result = await createBookPlanDraft({
+      workspaceDir: dir,
+      scaffold: true,
+      now: new Date("2026-06-09T01:00:00.000Z")
+    });
+
+    expect(result.draft.coreHook).not.toBe("");
+    expect(result.draft.readerPromises.length).toBeGreaterThan(0);
+    expect(result.draft.protagonist.name).toContain("陆沉");
+    expect(result.draft.retentionRisks[0]?.mitigation).toContain("冲突");
+  });
 });
 
 describe("createVolumePlanDraft", () => {
@@ -286,6 +302,22 @@ describe("createChaptersPlanDraft", () => {
 
     const saved = await loadChaptersPlanDraft(result.outputPath);
     expect(ChaptersPlanDraftSchema.parse(saved).generatedAt).toBe("2026-06-09T05:00:00.000Z");
+  });
+
+  it("scaffolds chapter target words from drafting config", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-scaffold-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir, scaffold: true });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001", scaffold: true });
+    await writeVolumePlanAuditFixture(dir);
+
+    const result = await createChaptersPlanDraft({
+      workspaceDir: dir,
+      volumeId: "001",
+      scaffold: true
+    });
+
+    expect(result.draft.chapters[0]?.targetWords).toBe(2500);
   });
 
   it("requires a volume draft before chapter planning", async () => {

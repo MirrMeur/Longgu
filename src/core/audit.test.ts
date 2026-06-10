@@ -153,6 +153,56 @@ describe("chapter audit", () => {
     expect(markdown).toContain("Tail Hook: 高台长老认出骨纹来源");
   });
 
+  it("accepts payoff-engineering audit dimensions", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-payoff-dimension-"));
+    await createFixtureWorkspace(dir);
+    await writeFile(path.join(dir, "chapters", "001.md"), "# 第一章\n\n正文。\n", "utf8");
+    await mkdir(path.join(dir, "audits"), { recursive: true });
+    const inputPath = path.join(dir, "audits", "001.raw-audit.json");
+    await writeFile(
+      inputPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: "longgu.chapter-audit.v0.4",
+          chapterId: "001",
+          genre: "玄幻",
+          summary: "开篇钩子偏弱。",
+          scores: {
+            retention: 5,
+            readability: 7,
+            aiFlavor: 3,
+            scenePressure: 5,
+            characterVoice: 6
+          },
+          issues: [
+            {
+              id: "weak-opening",
+              severity: "warning",
+              source: "prose",
+              dimension: "weak-opening-hook",
+              location: "前300字",
+              reason: "没有冲突或悬念。",
+              fix: "前300字加入公开压力。"
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await auditChapter({
+      workspaceDir: dir,
+      chapterId: "001",
+      inputPath,
+      config: testConfig,
+      now: new Date("2026-06-09T12:00:00.000Z")
+    });
+
+    expect(result.audit.issues[0]?.dimension).toBe("weak-opening-hook");
+  });
+
   it("marks critical issues as blocked", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-audit-blocked-"));
     await createFixtureWorkspace(dir);

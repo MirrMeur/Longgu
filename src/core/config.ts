@@ -38,6 +38,12 @@ export const DraftingConfigSchema = z.object({
   targetWords: z.number().int().positive().default(defaultDraftingTargetWords)
 });
 
+export const MarketConfigSchema = z.object({
+  platform: z.enum(["qidian", "fanqie", "feilu", "zongheng"]).optional(),
+  targetAudience: z.string().min(1).optional(),
+  updateCadence: z.enum(["daily", "twice-daily"]).optional()
+});
+
 export const LongguConfigSchema = z.object({
   title: z.string().min(1),
   genre: z.string().min(1),
@@ -45,6 +51,7 @@ export const LongguConfigSchema = z.object({
   provider: ProviderConfigSchema.optional(),
   context: ContextConfigSchema.default({ maxTokens: 16000 }),
   drafting: DraftingConfigSchema.default({ targetWords: defaultDraftingTargetWords }),
+  market: MarketConfigSchema.optional(),
   models: z.record(z.string().min(1), ModelProfileSchema).optional(),
   routes: z.record(z.string().min(1), ModelRouteSchema).optional()
 });
@@ -55,6 +62,7 @@ export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 export type ModelRoute = z.infer<typeof ModelRouteSchema>;
 export type ContextConfig = z.infer<typeof ContextConfigSchema>;
 export type DraftingConfig = z.infer<typeof DraftingConfigSchema>;
+export type MarketConfig = z.infer<typeof MarketConfigSchema>;
 export type LongguConfig = Omit<z.infer<typeof LongguConfigSchema>, "context" | "drafting"> & {
   context?: ContextConfig;
   drafting?: DraftingConfig;
