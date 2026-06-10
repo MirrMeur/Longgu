@@ -39,6 +39,14 @@ The system SHALL include available local context sources relevant to the target 
 - **WHEN** matching base bible files, chapter plan, volume plan, state ledgers, genre card, style constraints, chapter summaries, or previous chapter bodies exist
 - **THEN** the context builder considers those sources for the context pack
 
+#### Scenario: Chapter summary generation
+- **WHEN** a user runs `longgu summarize chapter --id 001`
+- **AND** `chapters/001.md` exists
+- **AND** provider credentials are available
+- **THEN** the system asks the provider for structured chapter summary JSON
+- **AND** the system writes `summaries/001.summary.json`
+- **AND** the summary can be consumed by later context builds
+
 #### Scenario: State ledger summary source selection
 - **WHEN** state ledgers exist
 - **THEN** the context builder creates compact critical state summary sections

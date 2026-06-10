@@ -30,6 +30,10 @@ The system SHALL resolve a model profile for every model-backed task route.
 - **THEN** it uses the matching task route when configured
 - **AND** it falls back to `default` when no matching route is configured
 
+#### Scenario: Summary route
+- **WHEN** chapter summary generation runs
+- **THEN** the system resolves the `summarize` model task route
+
 ### Requirement: Fallback model execution
 The system SHALL retry with a fallback model when the routed primary generation model fails.
 

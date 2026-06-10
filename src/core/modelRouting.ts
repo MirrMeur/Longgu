@@ -1,7 +1,7 @@
 import { requireProviderConfig, type LongguConfig, type ModelCost, type ModelProfile } from "./config.js";
 export { estimateTokens } from "./tokenEstimate.js";
 
-export const modelTasks = ["planning", "drafting", "audit", "revise", "settle", "experiment"] as const;
+export const modelTasks = ["planning", "drafting", "audit", "revise", "settle", "experiment", "summarize"] as const;
 
 export type ModelTask = (typeof modelTasks)[number];
 

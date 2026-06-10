@@ -28,6 +28,7 @@ import { listModelProfiles } from "../core/modelRouting.js";
 import { reviseChapter, RevisionModeSchema } from "../core/revision.js";
 import { buildCostReport, latestRun } from "../core/runs.js";
 import { checkState, initStateLedgers, inspectState, settleChapterState } from "../core/state.js";
+import { summarizeChapter } from "../core/summary.js";
 import { assertWorkspaceShape, initWorkspace } from "../core/workspace.js";
 
 const program = new Command();
@@ -466,6 +467,30 @@ context
   });
 
 const run = program.command("run").description("Inspect generation runs");
+const summarize = program.command("summarize").description("Summarize Longgu artifacts");
+summarize
+  .command("chapter")
+  .description("Generate a structured chapter summary")
+  .requiredOption("--id <id>", "chapter id, e.g. v1-001 or 001")
+  .argument("[dir]", "workspace directory", ".")
+  .action(async (dir: string, options: { id: string }) => {
+    await runCli(async () => {
+      const workspaceDir = path.resolve(dir);
+      await checkWorkspace(workspaceDir);
+      const config = await loadConfigWithFriendlyErrors(workspaceDir);
+      const result = await summarizeChapter({
+        workspaceDir,
+        chapterId: options.id,
+        config,
+        readApiKey,
+        generate: generateWithOpenAICompatible
+      });
+      console.log(`Summary JSON: ${result.summaryPath}`);
+      console.log(`Run record: ${result.runDir}`);
+      console.log(`Next: run longgu context build --chapter ${options.id} to include recent summaries.`);
+    });
+  });
+
 run
   .command("show")
   .description("Show latest run summary")
