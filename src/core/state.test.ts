@@ -154,6 +154,103 @@ describe("checkState", () => {
     expect(result.report.issues[0]?.reason).toContain("missing-character");
   });
 
+  it("reports character role drift from settled facts and timeline events", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-role-drift-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "characters.json"),
+      `${JSON.stringify(
+        CharactersLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "characters",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          characters: [
+            {
+              id: "zhao-mingde",
+              name: "赵明德",
+              aliases: [],
+              status: "余姚知县",
+              location: "县衙",
+              goals: [],
+              relationships: []
+            }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(
+      path.join(dir, "state", "truth.json"),
+      `${JSON.stringify(
+        TruthLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "truth",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          facts: [{ id: "fact-zhao-role", text: "赵明德是赵家族长兼米铺话事人。", sourceChapterId: "008" }]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("needs-review");
+    expect(result.report.issues.map((issue) => issue.id)).toContain("characters-zhao-mingde-role-drift");
+  });
+
+  it("reports timeline order and repeated first-time scene drift", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-timeline-drift-"));
+    await createFixtureWorkspace(dir);
+    await initStateLedgers({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T09:00:00.000Z")
+    });
+    await writeFile(
+      path.join(dir, "state", "timeline.json"),
+      `${JSON.stringify(
+        TimelineLedgerSchema.parse({
+          schemaVersion: "longgu.story-state.v0.3",
+          ledger: "timeline",
+          updatedAt: "2026-06-09T09:00:00.000Z",
+          events: [
+            { id: "event-005", chapterId: "001-05", order: 5, summary: "林逸在王阳明讲会公开谈水车清渠，王阳明支持他的实学观点。" },
+            { id: "event-004", chapterId: "001-04", order: 6, summary: "林逸到沈文远宅中讨论水车清渠、粮囤漏雨和赵家威胁。" },
+            { id: "event-003", chapterId: "001-03", order: 7, summary: "林逸到沈文远宅中讨论水车清渠、粮囤漏雨和赵家威胁。" },
+            { id: "event-010", chapterId: "001-10", order: 10, summary: "林逸第一次去王阳明府上谈水车清渠，王阳明考问他的实学观点。" }
+          ]
+        }),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await checkState({
+      workspaceDir: dir,
+      now: new Date("2026-06-09T10:00:00.000Z")
+    });
+
+    expect(result.report.status).toBe("needs-review");
+    expect(result.report.issues.map((issue) => issue.id)).toEqual(
+      expect.arrayContaining([
+        "timeline-event-004-order-regression",
+        "timeline-event-003-duplicate-event-004",
+        "timeline-event-010-first-time-drift"
+      ])
+    );
+  });
+
   it("reports overdue active reader promises when chapter context is provided", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-state-check-promise-"));
     await createFixtureWorkspace(dir);

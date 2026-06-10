@@ -658,7 +658,9 @@ function collectStateCheckIssues(
   options: { chapterId?: string; promiseMaxAge: number }
 ): StateCheckIssue[] {
   const issues: StateCheckIssue[] = [];
+  const facts = (ledgers["truth.json"] as TruthLedger).facts;
   const characters = (ledgers["characters.json"] as CharactersLedger).characters;
+  const timelineEvents = (ledgers["timeline.json"] as TimelineLedger).events;
   const resources = (ledgers["resources.json"] as ResourcesLedger).resources;
   const promises = (ledgers["reader-promises.json"] as ReaderPromisesLedger).promises;
   const characterIds = new Set(characters.map((character) => character.id));
@@ -693,6 +695,9 @@ function collectStateCheckIssues(
     }
   }
 
+  issues.push(...detectCharacterRoleDrift({ characters, facts, timelineEvents }));
+  issues.push(...detectTimelineDrift(timelineEvents));
+
   const currentChapterNumber = options.chapterId ? parseChapterNumber(options.chapterId) : undefined;
   if (currentChapterNumber !== undefined) {
     for (const promise of promises) {
@@ -721,6 +726,108 @@ function collectStateCheckIssues(
   return issues.sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function detectCharacterRoleDrift(input: {
+  characters: CharactersLedger["characters"];
+  facts: TruthLedger["facts"];
+  timelineEvents: TimelineLedger["events"];
+}): StateCheckIssue[] {
+  const roleGroups = [
+    { id: "county-magistrate", label: "知县/县令", terms: ["知县", "县令", "一县之长"] },
+    { id: "clan-chief", label: "族长/宗族话事人", terms: ["族长", "宗族话事人", "话事人"] },
+    { id: "county-deputy", label: "县丞/县丞衔", terms: ["县丞", "县丞衔"] },
+    { id: "merchant", label: "商人/铺户", terms: ["商人", "富商", "米铺", "当铺"] }
+  ];
+  const issues: StateCheckIssue[] = [];
+  for (const character of input.characters) {
+    const names = [character.name, ...character.aliases].filter(Boolean);
+    const evidence = [
+      character.status,
+      ...input.facts.filter((fact) => names.some((name) => fact.text.includes(name))).map((fact) => fact.text),
+      ...input.timelineEvents.filter((event) => names.some((name) => event.summary.includes(name))).map((event) => event.summary)
+    ].join("\n");
+    const matchedGroups = roleGroups.filter((group) => group.terms.some((term) => evidence.includes(term)));
+    if (matchedGroups.length > 1) {
+      issues.push(
+        StateCheckIssueSchema.parse({
+          id: `characters-${character.id}-role-drift`,
+          severity: "critical",
+          ledger: "characters",
+          itemId: character.id,
+          reason: `character ${character.name} is associated with conflicting role terms: ${matchedGroups
+            .map((group) => group.label)
+            .join(", ")}`
+        })
+      );
+    }
+  }
+  return issues;
+}
+
+function detectTimelineDrift(events: TimelineLedger["events"]): StateCheckIssue[] {
+  const issues: StateCheckIssue[] = [];
+  const byOrder = [...events].sort((left, right) => left.order - right.order || left.chapterId.localeCompare(right.chapterId));
+  let maxChapterNumber = -1;
+  let maxChapterId = "";
+  for (const event of byOrder) {
+    const chapterNumber = parseChapterNumber(event.chapterId);
+    if (chapterNumber === undefined) {
+      continue;
+    }
+    if (chapterNumber < maxChapterNumber) {
+      issues.push(
+        StateCheckIssueSchema.parse({
+          id: `timeline-${event.id}-order-regression`,
+          severity: "critical",
+          ledger: "timeline",
+          itemId: event.id,
+          reason: `timeline order places chapter ${event.chapterId} after later chapter ${maxChapterId}`
+        })
+      );
+    }
+    if (chapterNumber > maxChapterNumber) {
+      maxChapterNumber = chapterNumber;
+      maxChapterId = event.chapterId;
+    }
+  }
+
+  for (let i = 0; i < events.length; i += 1) {
+    for (let j = i + 1; j < events.length; j += 1) {
+      const left = events[i];
+      const right = events[j];
+      if (left.chapterId === right.chapterId) {
+        continue;
+      }
+      const similarity = textSimilarity(left.summary, right.summary);
+      if (similarity >= 0.62) {
+        issues.push(
+          StateCheckIssueSchema.parse({
+            id: `timeline-${right.id}-duplicate-${left.id}`,
+            severity: "warning",
+            ledger: "timeline",
+            itemId: right.id,
+            reason: `timeline event resembles ${left.id} from chapter ${left.chapterId}; similarity ${similarity.toFixed(2)} suggests repeated scene coverage`
+          })
+        );
+      }
+      const earlier = compareChapterIds(left.chapterId, right.chapterId) <= 0 ? left : right;
+      const later = earlier === left ? right : left;
+      if (/(初次|第一次|首次|第一回)/u.test(later.summary) && textSimilarity(earlier.summary, later.summary) >= 0.35) {
+        issues.push(
+          StateCheckIssueSchema.parse({
+            id: `timeline-${later.id}-first-time-drift`,
+            severity: "warning",
+            ledger: "timeline",
+            itemId: later.id,
+            reason: `later event uses first-time wording but resembles earlier event ${earlier.id} from chapter ${earlier.chapterId}`
+          })
+        );
+      }
+    }
+  }
+
+  return issues;
+}
+
 function parseChapterNumber(chapterId: string): number | undefined {
   const normalized = chapterId.trim();
   const match = normalized.match(/^(?:.+-)?(\d+)$/);
@@ -728,6 +835,40 @@ function parseChapterNumber(chapterId: string): number | undefined {
     return undefined;
   }
   return Number.parseInt(match[1], 10);
+}
+
+function compareChapterIds(left: string, right: string): number {
+  const leftNumber = parseChapterNumber(left);
+  const rightNumber = parseChapterNumber(right);
+  if (leftNumber !== undefined && rightNumber !== undefined && leftNumber !== rightNumber) {
+    return leftNumber - rightNumber;
+  }
+  return left.localeCompare(right);
+}
+
+function textSimilarity(left: string, right: string): number {
+  const leftGrams = characterBigrams(left);
+  const rightGrams = characterBigrams(right);
+  if (leftGrams.size === 0 || rightGrams.size === 0) {
+    return 0;
+  }
+  let intersection = 0;
+  for (const gram of leftGrams) {
+    if (rightGrams.has(gram)) {
+      intersection += 1;
+    }
+  }
+  const union = new Set([...leftGrams, ...rightGrams]).size;
+  return intersection / union;
+}
+
+function characterBigrams(value: string): Set<string> {
+  const normalized = value.replace(/\s+/g, "").replace(/[，。！？；：、,.!?;:"'“”‘’（）()《》]/gu, "");
+  const grams = new Set<string>();
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    grams.add(normalized.slice(index, index + 2));
+  }
+  return grams;
 }
 
 function renderStateCheckMarkdown(report: StateCheckReport): string {
