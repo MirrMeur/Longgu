@@ -174,8 +174,13 @@ The system SHALL provide a deterministic chapter plan readiness audit before cha
 #### Scenario: Failed chapter plan audit blocks drafting
 - **WHEN** `audits/chapters-001.plan-audit.json` has status `needs-revision` or `blocked`
 - **AND** a user drafts a chapter whose card belongs to `outlines/chapters-001.draft.json`
-- **THEN** the drafting command reports the failed plan audit
+- **THEN** the drafting command reports the failed plan audit and mentions the force bypass
 - **AND** no chapter file is written
+
+#### Scenario: Force bypass failed chapter plan audit
+- **WHEN** `audits/chapters-001.plan-audit.json` has status `needs-revision` or `blocked`
+- **AND** a user drafts a matching planned chapter with `--force`
+- **THEN** the drafting command bypasses the failed chapter-plan audit gate
 
 ### Requirement: Volume plan readiness audit
 The system SHALL provide a deterministic volume plan readiness audit before chapter planning.

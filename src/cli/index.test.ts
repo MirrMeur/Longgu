@@ -305,6 +305,21 @@ describe("longgu host LLM write CLI", () => {
     );
     expect(skipped.stdout).toContain("Host prompt:");
   });
+
+  it("supports --force as an obvious chapter-plan audit bypass", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-host-write-force-"));
+    await createPlanningStateFixture(dir);
+    await rm(path.join(dir, "audits", "chapters-001.plan-audit.json"));
+
+    const forced = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "write", "chapter", "--id", "001", "--host-prompt", "--force", dir],
+      { cwd: path.resolve(".") }
+    );
+
+    expect(forced.stdout).toContain("Host prompt:");
+    await expect(readFile(path.join(dir, "host-prompts", "001.prompt.md"), "utf8")).resolves.toContain("请开始写第 001 章");
+  });
 });
 
 describe("longgu experiment CLI", () => {

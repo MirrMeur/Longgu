@@ -84,11 +84,13 @@ write
   .option("--host-prompt", "write a prompt for a host LLM instead of calling a provider")
   .option("--input <path>", "import a host-generated Markdown chapter instead of calling a provider")
   .option("--skip-plan-audit", "bypass the chapter-plan audit gate and allow unplanned chapter ids")
+  .option("--force", "bypass chapter-plan audit blockers for prototype drafting")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { id: string; important?: boolean; hostPrompt?: boolean; input?: string; skipPlanAudit?: boolean }) => {
+  .action(async (dir: string, options: { id: string; important?: boolean; hostPrompt?: boolean; input?: string; skipPlanAudit?: boolean; force?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
+      const skipPlanAudit = options.skipPlanAudit || options.force;
       if (options.hostPrompt && options.input) {
         throw new Error("--host-prompt cannot be used with --input.");
       }
@@ -96,7 +98,7 @@ write
         const result = await exportHostChapterPrompt({
           workspaceDir,
           chapterId: options.id,
-          skipPlanAudit: options.skipPlanAudit
+          skipPlanAudit
         });
         console.log(`Host prompt: ${result.promptPath}`);
         console.log(`Context JSON: ${result.contextJsonPath}`);
@@ -109,7 +111,7 @@ write
           workspaceDir,
           chapterId: options.id,
           inputPath: options.input,
-          skipPlanAudit: options.skipPlanAudit
+          skipPlanAudit
         });
         console.log(`Imported chapter: ${result.chapterPath}`);
         console.log(`Run record: ${result.runDir}`);
@@ -120,7 +122,7 @@ write
         workspaceDir,
         chapterId: options.id,
         important: options.important,
-        skipPlanAudit: options.skipPlanAudit,
+        skipPlanAudit,
         readApiKey,
         generate: generateWithOpenAICompatible
       });

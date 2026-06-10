@@ -203,7 +203,7 @@ async function resolveDraftingChapterId(
     return { chapterId, chapterCard: null };
   }
   throw new Error(
-    `No chapter plan card found for ${chapterId}. Use the full planned id, or pass --skip-plan-audit to draft without a chapter card.`
+    `No chapter plan card found for ${chapterId}. Use the full planned id, or pass --skip-plan-audit / --force to draft without a chapter card.`
   );
 }
 
@@ -231,14 +231,14 @@ async function assertChapterPlanAuditPassed(
   const auditPath = path.join(workspaceDir, auditRelative);
   if (!(await fileExists(auditPath))) {
     throw new Error(
-      `Chapter plan audit is required before drafting chapter ${chapterCard.chapter.chapterId}. Run longgu audit chapter-plan --volume ${chapterCard.volumeId}, or pass --skip-plan-audit.`
+      `Chapter plan audit is required before drafting chapter ${chapterCard.chapter.chapterId}. Run longgu audit chapter-plan --volume ${chapterCard.volumeId}, or pass --skip-plan-audit / --force.`
     );
   }
   const audit = ChapterPlanAuditSchema.parse(JSON.parse(await readFile(auditPath, "utf8")) as unknown);
   if (audit.status !== "passed" || audit.blocked) {
     const markdownPath = path.join("audits", `chapters-${chapterCard.volumeId}.plan-audit.md`);
     throw new Error(
-      `Chapter plan audit did not pass for ${chapterCard.file}: status=${audit.status}. Review ${markdownPath}, fix the chapter plan, rerun longgu audit chapter-plan --volume ${chapterCard.volumeId}, or pass --skip-plan-audit.`
+      `Chapter plan audit did not pass for ${chapterCard.file}: status=${audit.status}. Review ${markdownPath}, fix the chapter plan, rerun longgu audit chapter-plan --volume ${chapterCard.volumeId}, or pass --skip-plan-audit / --force.`
     );
   }
 }

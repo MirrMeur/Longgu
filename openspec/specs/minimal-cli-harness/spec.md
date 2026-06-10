@@ -98,7 +98,7 @@ The system SHALL provide `longgu write chapter --id <id>` to generate or import 
 #### Scenario: Reject unmatched id when chapter plans exist
 - **WHEN** no planned chapter card matches the requested id
 - **AND** chapter plan files exist
-- **AND** the user does not pass `--skip-plan-audit`
+- **AND** the user does not pass `--skip-plan-audit` or `--force`
 - **THEN** the system rejects the request instead of silently drafting without a chapter card
 
 #### Scenario: Generate unmatched id explicitly
@@ -107,11 +107,17 @@ The system SHALL provide `longgu write chapter --id <id>` to generate or import 
 - **AND** the user passes `--skip-plan-audit`
 - **THEN** the system may draft without a chapter card
 
+#### Scenario: Force generate unmatched id
+- **WHEN** no planned chapter card matches the requested id
+- **AND** chapter plan files exist
+- **AND** the user passes `--force`
+- **THEN** the system may draft without a chapter card
+
 #### Scenario: Block drafting when chapter plan audit is missing
 - **WHEN** a user runs `longgu write chapter --id 001-001`
 - **AND** `outlines/chapters-001.draft.json` contains a card for chapter `001-001`
 - **AND** `audits/chapters-001.plan-audit.json` does not exist
-- **THEN** the system reports that chapter-plan audit is required
+- **THEN** the system reports that chapter-plan audit is required and mentions the force bypass
 - **AND** no chapter file is written
 
 #### Scenario: Allow drafting after passed chapter plan audit
@@ -122,6 +128,11 @@ The system SHALL provide `longgu write chapter --id <id>` to generate or import 
 
 #### Scenario: Explicitly skip chapter plan audit gate
 - **WHEN** a user runs `longgu write chapter --id 001-001 --skip-plan-audit`
+- **AND** a matching chapter card exists
+- **THEN** the system bypasses the chapter-plan audit gate
+
+#### Scenario: Force bypass chapter plan audit gate
+- **WHEN** a user runs `longgu write chapter --id 001-001 --force`
 - **AND** a matching chapter card exists
 - **THEN** the system bypasses the chapter-plan audit gate
 
