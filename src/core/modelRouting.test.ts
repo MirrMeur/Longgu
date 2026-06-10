@@ -40,7 +40,17 @@ describe("model routing", () => {
   });
 
   it("estimates tokens and costs deterministically", () => {
-    expect(estimateTokens("一二三四五")).toBe(3);
+    expect(estimateTokens("一二三四五")).toBe(5);
+    const formattedJson = JSON.stringify(
+      {
+        schemaVersion: "longgu.story-state.v0.3",
+        ledger: "truth",
+        facts: [{ id: "fact-001", text: "陆沉得到灵石。" }]
+      },
+      null,
+      2
+    );
+    expect(estimateTokens(formattedJson)).toBeGreaterThan(Math.ceil(formattedJson.length / 2));
     expect(estimateCost(1000, 500, { inputPer1K: 0.01, outputPer1K: 0.03 })).toBe(0.025);
   });
 });

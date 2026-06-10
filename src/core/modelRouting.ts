@@ -1,4 +1,5 @@
 import { requireProviderConfig, type LongguConfig, type ModelCost, type ModelProfile } from "./config.js";
+export { estimateTokens } from "./tokenEstimate.js";
 
 export const modelTasks = ["planning", "drafting", "audit", "revise", "settle", "experiment"] as const;
 
@@ -55,10 +56,6 @@ export function resolveModelRoute(
   const primary = resolveProfile(profiles, primaryId);
   const fallback = route?.fallback ? resolveProfile(profiles, route.fallback) : undefined;
   return { task, primary, fallback };
-}
-
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 2);
 }
 
 export function estimateCost(inputTokens: number, outputTokens: number, cost: ModelCost): number {

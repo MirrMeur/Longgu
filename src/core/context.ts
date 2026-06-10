@@ -11,7 +11,9 @@ import { loadLongguConfig } from "./config.js";
 import { loadChapterFeedback } from "./feedback.js";
 import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { loadStateLedger, stateLedgerFiles } from "./state.js";
+import { estimateTokens } from "./tokenEstimate.js";
 import { loadBibleContext, pathExists } from "./workspace.js";
+export { estimateTokens } from "./tokenEstimate.js";
 
 const contextPackSchemaVersion = z.literal("longgu.context-pack.v0.7");
 
@@ -105,10 +107,6 @@ export async function buildChapterContext(input: {
   await writeFile(markdownPath, renderContextMarkdown(pack), "utf8");
 
   return { pack, jsonPath, markdownPath };
-}
-
-export function estimateTokens(content: string): number {
-  return Math.ceil(content.length / 2);
 }
 
 export function applyTokenBudget(sections: ContextSection[], tokenBudget: number): ContextSection[] {

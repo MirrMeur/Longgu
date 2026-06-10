@@ -69,6 +69,11 @@ The system SHALL trim context sections when estimated tokens exceed the requeste
 - **THEN** the system excludes lower-priority sections first
 - **THEN** the command still succeeds
 
+#### Scenario: Mixed content token estimates
+- **WHEN** context contains Chinese prose, Markdown, or formatted JSON
+- **THEN** the system estimates tokens with a mixed-content heuristic instead of raw character length divided by two
+- **AND** formatted JSON structure contributes to the estimate
+
 #### Scenario: Same-priority retention scoring
 - **WHEN** same-priority sections compete for a tight token budget
 - **THEN** the system trims lower retention-score sections before higher retention-score sections
