@@ -447,6 +447,7 @@ export async function createChaptersPlanDraft(input: {
   workspaceDir: string;
   volumeId: string;
   force?: boolean;
+  skipVolumeAudit?: boolean;
   model?: boolean;
   apiKey?: string;
   readApiKey?: (envName: string) => string;
@@ -458,6 +459,9 @@ export async function createChaptersPlanDraft(input: {
   const volumePlanPath = path.join(input.workspaceDir, volumePlanSource);
   if (!(await pathExists(volumePlanPath))) {
     throw new Error(`Volume plan draft is required. Run longgu plan volume --id ${volumeId} before longgu plan chapters.`);
+  }
+  if (!input.skipVolumeAudit) {
+    await assertVolumePlanAuditPassed(input.workspaceDir, volumeId);
   }
 
   const outputPath = path.join(input.workspaceDir, "outlines", `chapters-${volumeId}.draft.json`);
@@ -517,6 +521,24 @@ export async function createChaptersPlanDraft(input: {
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
   return { draft, outputPath, overwritten: exists, runDir: modelResult?.runDir };
+}
+
+async function assertVolumePlanAuditPassed(workspaceDir: string, volumeId: string): Promise<void> {
+  const auditSource = `audits/volume-${volumeId}.plan-audit.json`;
+  const auditPath = path.join(workspaceDir, auditSource);
+  if (!(await pathExists(auditPath))) {
+    throw new Error(
+      `Volume plan audit is required before chapter planning for volume ${volumeId}. Run longgu audit volume-plan --id ${volumeId}, or pass --skip-volume-audit.`
+    );
+  }
+
+  const raw = await readFile(auditPath, "utf8");
+  const audit = VolumePlanAuditSchema.parse(JSON.parse(raw) as unknown);
+  if (audit.volumeId !== volumeId || audit.status !== "passed" || audit.blocked) {
+    throw new Error(
+      `Volume plan audit has not passed for volume ${volumeId}. Review audits/volume-${volumeId}.plan-audit.md, fix outlines/volume-${volumeId}.draft.json, rerun longgu audit volume-plan --id ${volumeId}, or pass --skip-volume-audit.`
+    );
+  }
 }
 
 async function generatePlanningDraft(input: {

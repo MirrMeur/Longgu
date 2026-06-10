@@ -61,7 +61,7 @@ describe("longgu plan CLI", () => {
     );
     const chaptersResult = await execFileAsync(
       process.execPath,
-      ["--import", "tsx", cliPath, "plan", "chapters", "--volume", "001", dir],
+      ["--import", "tsx", cliPath, "plan", "chapters", "--volume", "001", "--skip-volume-audit", dir],
       { cwd: path.resolve(".") }
     );
 
@@ -77,6 +77,26 @@ describe("longgu plan CLI", () => {
     await expect(readFile(path.join(dir, "outlines", "chapters-001.draft.json"), "utf8")).resolves.toContain(
       "\"schemaVersion\": \"longgu.chapters-plan-draft.v0.2\""
     );
+  });
+
+  it("blocks chapter planning without a passed volume audit by default", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-cli-plan-chapters-audit-gate-"));
+    await createFixtureWorkspace(dir);
+
+    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "book", dir], {
+      cwd: path.resolve(".")
+    });
+    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "volume", "--id", "001", dir], {
+      cwd: path.resolve(".")
+    });
+
+    await expect(
+      execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "chapters", "--volume", "001", dir], {
+        cwd: path.resolve(".")
+      })
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("Volume plan audit is required before chapter planning for volume 001")
+    });
   });
 });
 
@@ -119,9 +139,13 @@ describe("longgu plan audit CLI", () => {
     await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "volume", "--id", "001", dir], {
       cwd: path.resolve(".")
     });
-    await execFileAsync(process.execPath, ["--import", "tsx", cliPath, "plan", "chapters", "--volume", "001", dir], {
-      cwd: path.resolve(".")
-    });
+    await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", cliPath, "plan", "chapters", "--volume", "001", "--skip-volume-audit", dir],
+      {
+        cwd: path.resolve(".")
+      }
+    );
 
     const result = await execFileAsync(
       process.execPath,

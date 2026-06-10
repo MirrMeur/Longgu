@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -18,7 +18,30 @@ import {
   loadChaptersPlanDraft,
   loadVolumePlanDraft
 } from "./bookPlan.js";
+import type { VolumePlanAudit } from "./bookPlan.js";
 import { latestRun } from "./runs.js";
+
+async function writeVolumePlanAuditFixture(
+  workspaceDir: string,
+  overrides: Partial<VolumePlanAudit> = {}
+): Promise<void> {
+  const volumeId = overrides.volumeId ?? "001";
+  const audit = VolumePlanAuditSchema.parse({
+    schemaVersion: "longgu.volume-plan-audit.v0.2",
+    volumeId,
+    status: "passed",
+    blocked: false,
+    summary: "Volume plan is ready for chapter planning.",
+    issues: [],
+    sourceFiles: [`outlines/volume-${volumeId}.draft.json`],
+    generatedAt: "2026-06-10T01:00:00.000Z",
+    ...overrides
+  });
+  const auditDir = path.join(workspaceDir, "audits");
+  await mkdir(auditDir, { recursive: true });
+  await writeFile(path.join(auditDir, `volume-${volumeId}.plan-audit.json`), `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  await writeFile(path.join(auditDir, `volume-${volumeId}.plan-audit.md`), `# Volume Plan Audit ${volumeId}\n`, "utf8");
+}
 
 describe("createBookPlanDraft", () => {
   it("creates a validated book draft from config and bible context", async () => {
@@ -225,6 +248,7 @@ describe("createChaptersPlanDraft", () => {
       volumeId: "001",
       now: new Date("2026-06-09T03:00:00.000Z")
     });
+    await writeVolumePlanAuditFixture(dir);
 
     const result = await createChaptersPlanDraft({
       workspaceDir: dir,
@@ -273,6 +297,57 @@ describe("createChaptersPlanDraft", () => {
     );
   });
 
+  it("requires a passed volume audit before chapter planning", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-audit-missing-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+
+    await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow(
+      "Volume plan audit is required before chapter planning for volume 001"
+    );
+  });
+
+  it("rejects failed volume audits before chapter planning", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-audit-failed-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    await writeVolumePlanAuditFixture(dir, {
+      status: "needs-revision",
+      summary: "Volume plan still has weak pressure and payoff fields.",
+      issues: [
+        {
+          id: "volumeGoal-weak",
+          severity: "warning",
+          field: "volumeGoal",
+          reason: "volumeGoal is generic.",
+          fix: "Name the concrete visible win for this volume."
+        }
+      ]
+    });
+
+    await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow(
+      "Review audits/volume-001.plan-audit.md"
+    );
+  });
+
+  it("can explicitly bypass the volume audit gate", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-audit-skip-"));
+    await createFixtureWorkspace(dir);
+    await createBookPlanDraft({ workspaceDir: dir });
+    await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+
+    const result = await createChaptersPlanDraft({
+      workspaceDir: dir,
+      volumeId: "001",
+      skipVolumeAudit: true
+    });
+
+    expect(result.draft.volumeId).toBe("001");
+    await expect(readFile(result.outputPath, "utf8")).resolves.toContain("longgu.chapters-plan-draft.v0.2");
+  });
+
   it("refuses to overwrite an existing chapters draft without force", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-plan-chapters-"));
     await createFixtureWorkspace(dir);
@@ -280,6 +355,7 @@ describe("createChaptersPlanDraft", () => {
     await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
     const draftPath = path.join(dir, "outlines", "chapters-001.draft.json");
     await writeFile(draftPath, "{\"kept\":true}\n", "utf8");
+    await writeVolumePlanAuditFixture(dir);
 
     await expect(createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" })).rejects.toThrow("already exists");
     await expect(readFile(draftPath, "utf8")).resolves.toBe("{\"kept\":true}\n");
@@ -292,6 +368,7 @@ describe("createChaptersPlanDraft", () => {
     await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
     const draftPath = path.join(dir, "outlines", "chapters-001.draft.json");
     await writeFile(draftPath, "{\"old\":true}\n", "utf8");
+    await writeVolumePlanAuditFixture(dir);
 
     const result = await createChaptersPlanDraft({
       workspaceDir: dir,
@@ -446,6 +523,7 @@ describe("auditChapterPlan", () => {
     await createFixtureWorkspace(dir);
     await createBookPlanDraft({ workspaceDir: dir });
     await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    await writeVolumePlanAuditFixture(dir);
     const planResult = await createChaptersPlanDraft({
       workspaceDir: dir,
       volumeId: "001",
@@ -484,6 +562,7 @@ describe("auditChapterPlan", () => {
     await createFixtureWorkspace(dir);
     await createBookPlanDraft({ workspaceDir: dir });
     await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    await writeVolumePlanAuditFixture(dir);
     const planResult = await createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" });
     const weakPlan = {
       ...planResult.draft,
@@ -522,6 +601,7 @@ describe("auditChapterPlan", () => {
     await createFixtureWorkspace(dir);
     await createBookPlanDraft({ workspaceDir: dir });
     await createVolumePlanDraft({ workspaceDir: dir, volumeId: "001" });
+    await writeVolumePlanAuditFixture(dir);
     const planResult = await createChaptersPlanDraft({ workspaceDir: dir, volumeId: "001" });
     await writeFile(
       planResult.outputPath,

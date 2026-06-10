@@ -399,8 +399,9 @@ plan
   .requiredOption("--volume <id>", "volume id, e.g. 001")
   .option("--force", "replace existing outlines/chapters-<volume>.draft.json")
   .option("--model", "use the planning model route instead of deterministic draft generation")
+  .option("--skip-volume-audit", "bypass the volume-plan audit gate")
   .argument("[dir]", "workspace directory", ".")
-  .action(async (dir: string, options: { volume: string; force?: boolean; model?: boolean }) => {
+  .action(async (dir: string, options: { volume: string; force?: boolean; model?: boolean; skipVolumeAudit?: boolean }) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       await checkWorkspace(workspaceDir);
@@ -408,6 +409,7 @@ plan
         workspaceDir,
         volumeId: options.volume,
         force: options.force,
+        skipVolumeAudit: options.skipVolumeAudit,
         model: options.model,
         readApiKey: options.model ? readApiKey : undefined,
         generate: options.model ? generateWithOpenAICompatible : undefined

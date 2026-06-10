@@ -8,9 +8,28 @@ The system SHALL provide planning commands that create structured draft artifact
 
 #### Scenario: Create a chapters draft
 - **WHEN** a user runs `longgu plan chapters --volume 001` in a valid workspace with `outlines/volume-001.draft.json`
+- **AND** `audits/volume-001.plan-audit.json` exists with status `passed`
 - **THEN** the system reads `outlines/volume-001.draft.json`
 - **THEN** the system writes `outlines/chapters-001.draft.json`
 - **THEN** the draft records the volume id, genre, upstream volume source, and editable chapter cards
+
+#### Scenario: Missing upstream volume audit blocks chapter planning
+- **WHEN** a user runs `longgu plan chapters --volume 001` in a valid workspace with `outlines/volume-001.draft.json`
+- **AND** `audits/volume-001.plan-audit.json` does not exist
+- **THEN** the system reports that volume-plan audit is required
+- **AND** no chapters draft is written
+
+#### Scenario: Failed upstream volume audit blocks chapter planning
+- **WHEN** `audits/volume-001.plan-audit.json` has status `needs-revision` or `blocked`
+- **AND** a user runs `longgu plan chapters --volume 001`
+- **THEN** the system reports the failed volume-plan audit
+- **AND** no chapters draft is written
+
+#### Scenario: Explicitly skip volume audit gate for chapter planning
+- **WHEN** a user runs `longgu plan chapters --volume 001 --skip-volume-audit`
+- **AND** `outlines/volume-001.draft.json` exists
+- **THEN** the system bypasses the volume-plan audit gate
+- **AND** the system writes `outlines/chapters-001.draft.json`
 
 #### Scenario: Create a book draft
 - **WHEN** a user runs `longgu plan book` in a valid workspace
@@ -31,6 +50,7 @@ The system SHALL provide planning commands that create structured draft artifact
 
 #### Scenario: Refuse to overwrite an existing chapters draft
 - **WHEN** `outlines/chapters-001.draft.json` already exists
+- **AND** `audits/volume-001.plan-audit.json` exists with status `passed`
 - **AND** the user runs `longgu plan chapters --volume 001` without `--force`
 - **THEN** the system reports that the chapters draft already exists
 - **THEN** the existing draft remains unchanged
@@ -49,6 +69,7 @@ The system SHALL provide planning commands that create structured draft artifact
 
 #### Scenario: Force regenerate an existing chapters draft
 - **WHEN** `outlines/chapters-001.draft.json` already exists
+- **AND** `audits/volume-001.plan-audit.json` exists with status `passed`
 - **AND** the user runs `longgu plan chapters --volume 001 --force`
 - **THEN** the system replaces `outlines/chapters-001.draft.json` with a newly generated draft
 
@@ -83,6 +104,7 @@ The system SHALL provide planning commands that create structured draft artifact
 
 #### Scenario: Create model-backed chapter cards
 - **WHEN** a user runs `longgu plan chapters --volume 001 --model` with `outlines/volume-001.draft.json`
+- **AND** `audits/volume-001.plan-audit.json` exists with status `passed`
 - **THEN** the system routes generation through the `planning` model route
 - **THEN** the system validates the provider JSON against the chapters draft schema
 - **THEN** the system writes `outlines/chapters-001.draft.json`
