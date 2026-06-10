@@ -69,6 +69,11 @@ The system SHALL trim context sections when estimated tokens exceed the requeste
 - **THEN** the system excludes lower-priority sections first
 - **THEN** the command still succeeds
 
+#### Scenario: Same-priority retention scoring
+- **WHEN** same-priority sections compete for a tight token budget
+- **THEN** the system trims lower retention-score sections before higher retention-score sections
+- **AND** section size is used only as a tie-breaker after retention score
+
 #### Scenario: Critical context protected
 - **WHEN** a critical state section or current chapter card is present
 - **THEN** it remains included even when the pack exceeds the token budget

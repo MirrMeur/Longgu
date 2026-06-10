@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPlanningStateFixture } from "../test/testUtils.js";
-import { buildChapterContext, ContextPackSchema } from "./context.js";
+import { applyTokenBudget, buildChapterContext, ContextPackSchema, type ContextSection } from "./context.js";
 
 describe("chapter context builder", () => {
   it("builds reviewable JSON and Markdown context artifacts", async () => {
@@ -67,6 +67,43 @@ describe("chapter context builder", () => {
     expect(stateTruth?.included).toBe(true);
     expect(summary?.included).toBe(false);
     expect(result.pack.estimatedTokens).toBeGreaterThan(result.pack.tokenBudget);
+  });
+
+  it("trims lower retention sections before larger recent chapter context at the same priority", () => {
+    const sections: ContextSection[] = [
+      {
+        id: "chapter-card",
+        source: "outlines/chapters-001.draft.json",
+        reason: "current chapter",
+        priority: "critical",
+        estimatedTokens: 5,
+        included: true,
+        content: "critical"
+      },
+      {
+        id: "previous-chapter-001-009",
+        source: "chapters/001-009.md",
+        reason: "recent previous chapter",
+        priority: "low",
+        estimatedTokens: 40,
+        included: true,
+        content: "recent chapter body"
+      },
+      {
+        id: "summary-000",
+        source: "summaries/000.summary.json",
+        reason: "old summary",
+        priority: "low",
+        estimatedTokens: 4,
+        included: true,
+        content: "old summary"
+      }
+    ];
+
+    const result = applyTokenBudget(sections, 45);
+
+    expect(result.find((section) => section.id === "previous-chapter-001-009")?.included).toBe(true);
+    expect(result.find((section) => section.id === "summary-000")?.included).toBe(false);
   });
 
   it("uses configured context budget when no CLI override is provided", async () => {

@@ -118,7 +118,11 @@ export function applyTokenBudget(sections: ContextSection[], tokenBudget: number
     const candidates = next
       .map((section, index) => ({ section, index }))
       .filter(({ section }) => section.included && section.priority === priority)
-      .sort((left, right) => right.section.estimatedTokens - left.section.estimatedTokens);
+      .sort(
+        (left, right) =>
+          contextRetentionScore(left.section) - contextRetentionScore(right.section) ||
+          right.section.estimatedTokens - left.section.estimatedTokens
+      );
 
     for (const candidate of candidates) {
       if (includedTokens(next) <= tokenBudget) {
@@ -128,6 +132,23 @@ export function applyTokenBudget(sections: ContextSection[], tokenBudget: number
     }
   }
   return next;
+}
+
+function contextRetentionScore(section: ContextSection): number {
+  let score = 0;
+  if (section.id.startsWith("previous-chapter-")) {
+    score += 30;
+  }
+  if (section.id.startsWith("feedback-")) {
+    score += 25;
+  }
+  if (section.id.startsWith("summary-")) {
+    score += 10;
+  }
+  if (/"status"\s*:\s*"(active|opened|delayed)"/.test(section.content)) {
+    score += 20;
+  }
+  return score;
 }
 
 async function collectContextCandidates(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {
