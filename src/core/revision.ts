@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { diffLines } from "diff";
 import { z } from "zod";
 import type { LongguConfig, ProviderBackedLongguConfig } from "./config.js";
 import { loadLongguConfig, requireProviderBackedConfig } from "./config.js";
@@ -139,24 +140,24 @@ export function selectDefaultRevisionMode(audit: ChapterAudit): RevisionMode {
 }
 
 export function createLineDiff(before: string, after: string): string {
-  const beforeLines = before.split(/\r?\n/);
-  const afterLines = after.split(/\r?\n/);
-  const max = Math.max(beforeLines.length, afterLines.length);
   const lines: string[] = ["# Revision Diff", ""];
-  for (let index = 0; index < max; index += 1) {
-    const oldLine = beforeLines[index];
-    const newLine = afterLines[index];
-    if (oldLine === newLine) {
+  for (const change of diffLines(before, after)) {
+    if (!change.added && !change.removed) {
       continue;
     }
-    if (oldLine !== undefined) {
-      lines.push(`- ${oldLine}`);
-    }
-    if (newLine !== undefined) {
-      lines.push(`+ ${newLine}`);
+    for (const line of splitDiffLines(change.value)) {
+      lines.push(`${change.added ? "+" : "-"} ${line}`);
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function splitDiffLines(value: string): string[] {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
 }
 
 async function loadChapterAudit(auditPath: string): Promise<ChapterAudit> {

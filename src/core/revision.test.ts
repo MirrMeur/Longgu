@@ -32,6 +32,16 @@ describe("chapter revision", () => {
     expect(createLineDiff("A\nB\n", "A\nC\n")).toContain("+ C");
   });
 
+  it("aligns inserted lines without marking unchanged following lines", () => {
+    const diff = createLineDiff("A\nB\nC\n", "A\nX\nB\nC\n");
+
+    expect(diff).toContain("+ X");
+    expect(diff).not.toContain("- B");
+    expect(diff).not.toContain("+ B");
+    expect(diff).not.toContain("- C");
+    expect(diff).not.toContain("+ C");
+  });
+
   it("revises a chapter and writes revision history", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-revise-"));
     await createFixtureWorkspace(dir);
