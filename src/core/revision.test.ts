@@ -62,6 +62,14 @@ describe("chapter revision", () => {
     );
     const run = await latestRun(dir);
     expect(run?.metadata.task).toBe("revise");
+    const context = JSON.parse(await readFile(path.join(run?.dir ?? "", "context.json"), "utf8")) as {
+      file: string;
+      content: string;
+    }[];
+    expect(context).toContainEqual({
+      file: "chapters/001.md",
+      content: "# 第一章\n\n陆沉站在门口。\n"
+    });
   });
 
   it("rejects unchanged provider output", async () => {

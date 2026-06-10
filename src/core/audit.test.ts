@@ -309,6 +309,11 @@ describe("chapter audit", () => {
     expect(run?.metadata.task).toBe("audit");
     expect(run?.metadata.inputTokens).toBeGreaterThan(0);
     expect(run?.metadata.outputTokens).toBeGreaterThan(0);
+    const context = JSON.parse(await readFile(path.join(run?.dir ?? "", "context.json"), "utf8")) as {
+      file: string;
+      content: string;
+    }[];
+    expect(context.find((item) => item.file === "chapters/001.md")?.content).toContain("正文");
   });
 
   it("does not write final artifacts when provider retry is exhausted", async () => {

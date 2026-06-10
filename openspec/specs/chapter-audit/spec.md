@@ -29,8 +29,9 @@ The system SHALL provide `longgu audit chapter --id <id>` to create structured c
 #### Scenario: Model-backed audit writes run evidence
 - **WHEN** a user runs `longgu audit chapter --id 001` without `--input`
 - **THEN** the system uses the `audit` model route
-- **AND** the system writes a run record under `runs/`
+- **THEN** the system writes a run record under `runs/`
 - **AND** the run metadata records task `audit`, selected model profile, attempts, fallback count, token estimates, and estimated cost
+- **AND** the run record context includes non-empty source content used for audit generation
 
 #### Scenario: Provided audit input remains provider-free
 - **WHEN** a user runs `longgu audit chapter --id 001 --input audits/raw.json`
@@ -135,3 +136,4 @@ The system SHALL retry provider audit extraction once when the first provider ou
 - **WHEN** both provider audit attempts fail validation
 - **THEN** the system reports the final error
 - **THEN** no final audit JSON or Markdown is written
+

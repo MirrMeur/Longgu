@@ -300,6 +300,7 @@ async function generateRawAudit(input: {
   }
 
   let prompt = renderAuditPrompt(input.context);
+  const runContext = await loadRunContextFiles(input.workspaceDir, input.context.sourceFiles);
   const attempts: ChapterAuditAttempt[] = [];
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -309,7 +310,7 @@ async function generateRawAudit(input: {
       subjectId: input.context.chapterId,
       config: input.config,
       prompt,
-      context: input.context.sourceFiles.map((file) => ({ file, content: "" })),
+      context: runContext,
       apiKey: input.apiKey,
       readApiKey: input.readApiKey,
       generate: input.generate
@@ -326,6 +327,15 @@ async function generateRawAudit(input: {
   }
 
   throw new Error(`Chapter audit extraction failed after retry: ${lastError}`);
+}
+
+async function loadRunContextFiles(workspaceDir: string, files: string[]): Promise<{ file: string; content: string }[]> {
+  return Promise.all(
+    files.map(async (file) => ({
+      file,
+      content: await readFile(path.join(workspaceDir, file), "utf8")
+    }))
+  );
 }
 
 interface AuditContext {

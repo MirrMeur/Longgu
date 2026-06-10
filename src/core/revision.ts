@@ -74,6 +74,7 @@ export async function reviseChapter(input: {
     workspaceDir: input.workspaceDir,
     inputPath: input.inputPath,
     prompt,
+    originalChapterText: before,
     config,
     chapterId: input.chapterId,
     apiKey: input.apiKey,
@@ -167,6 +168,7 @@ async function resolveRevisionInput(input: {
   workspaceDir: string;
   inputPath?: string;
   prompt: string;
+  originalChapterText: string;
   config: LongguConfig;
   chapterId: string;
   apiKey?: string;
@@ -187,7 +189,7 @@ async function resolveRevisionInput(input: {
     subjectId: input.chapterId,
     config: providerConfig,
     prompt: input.prompt,
-    context: [{ file: `chapters/${input.chapterId}.md`, content: "" }],
+    context: [{ file: `chapters/${input.chapterId}.md`, content: input.originalChapterText }],
     apiKey: input.apiKey,
     readApiKey: input.readApiKey,
     generate: input.generate

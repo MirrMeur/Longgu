@@ -32,8 +32,9 @@ The system SHALL provide `longgu revise chapter --id <id>` to revise a chapter u
 #### Scenario: Model-backed revision writes run evidence
 - **WHEN** a user runs `longgu revise chapter --id 001` without `--input`
 - **THEN** the system uses the `revise` model route
-- **AND** the system writes a run record under `runs/`
+- **THEN** the system writes a run record under `runs/`
 - **AND** the run metadata records task `revise`, selected model profile, attempts, fallback count, token estimates, and estimated cost
+- **AND** the run record context includes the non-empty original chapter body used for revision generation
 
 #### Scenario: Provided revision input remains provider-free
 - **WHEN** a user runs `longgu revise chapter --id 001 --input revisions/001.candidate.md`
