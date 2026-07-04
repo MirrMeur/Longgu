@@ -13,6 +13,7 @@ import { renderGenrePromptHints, resolveGenreCard } from "./genreCards.js";
 import { loadStateLedger, stateLedgerFiles, type StateLedger } from "./state.js";
 import { estimateTokens } from "./tokenEstimate.js";
 import { loadBibleContext, pathExists } from "./workspace.js";
+import { loadCurrentStepContext } from "./guidedWorkflow.js";
 export { estimateTokens } from "./tokenEstimate.js";
 
 const contextPackSchemaVersion = z.literal("longgu.context-pack.v0.7");
@@ -158,16 +159,46 @@ function contextRetentionScore(section: ContextSection): number {
 
 async function collectContextCandidates(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {
   const config = await loadLongguConfig(workspaceDir);
+  const guidedContext = await loadCurrentStepContext(workspaceDir).catch(() => null);
   const chapterPlan = await findChapterPlan(workspaceDir, chapterId);
+  const guidedChapterPlan = await findGuidedChapterPlan(workspaceDir, chapterId);
   const volumePlan = chapterPlan ? await findVolumePlan(workspaceDir, chapterPlan.plan.volumeId) : null;
   const summaries = await loadChapterSummaries(workspaceDir, chapterId);
   const previousChapters = await loadPreviousChapterBodies(workspaceDir, chapterId);
   const feedbackSections = await loadFeedbackSections(workspaceDir, chapterId);
   const bibleSections = await loadBibleSections(workspaceDir);
+  const guidedSections = await loadGuidedCreativeSections(workspaceDir, guidedContext);
   const stateSections = await loadStateSections(workspaceDir);
   const styleSection = await loadStyleSection(workspaceDir);
   const genreCard = resolveGenreCard(config.genre);
   const candidates: ContextCandidate[] = [];
+
+  if (guidedContext) {
+    candidates.push({
+      id: "guided-current-step",
+      source: "当前步骤.md",
+      reason: "当前步骤说明本次推进需要看什么、改什么和下一步生成什么。",
+      priority: "critical",
+      content: guidedContext.currentStep
+    });
+    candidates.push({
+      id: "guided-workflow",
+      source: "创作流程.md",
+      reason: "创作流程定义阶段顺序、读取规则、确认关卡和作者手改优先规则。",
+      priority: "critical",
+      content: guidedContext.workflow
+    });
+  }
+
+  if (guidedChapterPlan) {
+    candidates.push({
+      id: "guided-chapter-plan",
+      source: guidedChapterPlan.file,
+      reason: `当前章节 ${chapterId} 的中文章节规划，包含本章作用、必须发生、不能发生、读者看点、爽点、伏笔、章尾钩子和连续性风险。`,
+      priority: "critical",
+      content: guidedChapterPlan.content
+    });
+  }
 
   if (chapterPlan) {
     candidates.push({
@@ -225,6 +256,7 @@ async function collectContextCandidates(workspaceDir: string, chapterId: string)
   }
 
   candidates.push(...bibleSections);
+  candidates.push(...guidedSections);
   candidates.push(...stateSections);
   candidates.push(...summaries);
   candidates.push(...previousChapters);
@@ -248,6 +280,15 @@ async function findChapterPlan(
     }
   }
   return null;
+}
+
+async function findGuidedChapterPlan(workspaceDir: string, chapterId: string): Promise<{ file: string; content: string } | null> {
+  const relative = path.join("06_章节规划", `第${chapterId}章_规划.md`);
+  const filePath = path.join(workspaceDir, relative);
+  if (!(await pathExists(filePath))) {
+    return null;
+  }
+  return { file: relative, content: await readFile(filePath, "utf8") };
 }
 
 async function findVolumePlan(
@@ -304,6 +345,50 @@ async function loadBibleSections(workspaceDir: string): Promise<ContextCandidate
     }));
 }
 
+async function loadGuidedCreativeSections(
+  workspaceDir: string,
+  guidedContext: Awaited<ReturnType<typeof loadCurrentStepContext>> | null
+): Promise<ContextCandidate[]> {
+  const candidates: ContextCandidate[] = [];
+  const files: { file: string; id: string; reason: string; priority: ContextPriority }[] = [
+    { file: path.join("01_立项设定", "读者承诺.md"), id: "guided-reader-promise", reason: "读者承诺用于约束每章追读价值、爽点和期待兑现。", priority: "high" },
+    { file: path.join("01_立项设定", "故事卖点.md"), id: "guided-selling-point", reason: "故事卖点用于约束本章差异化和长期吸引力。", priority: "medium" },
+    { file: path.join("02_设定圣经", "故事核心.md"), id: "guided-story-core", reason: "故事核心用于约束主线矛盾、长期谜团和结局方向。", priority: "high" },
+    { file: path.join("02_设定圣经", "世界设定.md"), id: "guided-world", reason: "世界设定用于避免规则冲突。", priority: "medium" },
+    { file: path.join("02_设定圣经", "角色设定", "主角.md"), id: "guided-protagonist", reason: "主角设定用于避免人设、欲望、弱点和知识状态错乱。", priority: "high" },
+    { file: path.join("02_设定圣经", "风格要求.md"), id: "guided-style", reason: "风格要求用于约束叙事视角、文风和禁用表达。", priority: "medium" },
+    { file: path.join("03_大纲", "全书大纲.md"), id: "guided-book-outline", reason: "全书大纲用于约束长篇主线和阶段推进。", priority: "medium" },
+    { file: path.join("03_大纲", "分卷大纲.md"), id: "guided-volume-outline", reason: "分卷大纲用于约束当前卷目标、压力、高潮和卷尾爆点。", priority: "medium" },
+    { file: path.join("04_伏笔与期待", "伏笔账本.md"), id: "guided-foreshadowing", reason: "伏笔账本用于追踪坑、原文锚点、当前状态和回收计划。", priority: "high" },
+    { file: path.join("04_伏笔与期待", "读者期待.md"), id: "guided-reader-expectations", reason: "读者期待用于约束追读理由、爽点密度和风险。", priority: "high" },
+    { file: path.join("05_前情与状态", "近期前情.md"), id: "guided-recent-context", reason: "近期前情用于承接上一段剧情并避免重复。", priority: "critical" },
+    { file: path.join("05_前情与状态", "角色状态.md"), id: "guided-character-state", reason: "角色状态用于约束位置、身体、持有物、已知和未知信息。", priority: "critical" },
+    { file: path.join("05_前情与状态", "世界状态.md"), id: "guided-world-state", reason: "世界状态用于避免已改变规则和环境状态冲突。", priority: "high" },
+    { file: path.join("05_前情与状态", "关系状态.md"), id: "guided-relationship-state", reason: "关系状态用于避免人物关系忽然跳变。", priority: "medium" },
+    { file: path.join("05_前情与状态", "未解决问题.md"), id: "guided-open-questions", reason: "未解决问题用于防止忘坑或过早揭底。", priority: "critical" },
+    { file: path.join("05_前情与状态", "连续性风险.md"), id: "guided-continuity-risks", reason: "连续性风险列出下一章不能写错的高风险点。", priority: "critical" }
+  ];
+
+  for (const item of files) {
+    const filePath = path.join(workspaceDir, item.file);
+    if (await pathExists(filePath)) {
+      candidates.push({ ...item, source: item.file, content: await readFile(filePath, "utf8") });
+    }
+  }
+
+  if (guidedContext?.missingFiles.length) {
+    candidates.push({
+      id: "guided-missing-files",
+      source: "当前步骤.md",
+      reason: "当前步骤列出的文件缺失时，应先补齐这些文件再继续推进。",
+      priority: "critical",
+      content: guidedContext.missingFiles.join("\n")
+    });
+  }
+
+  return candidates;
+}
+
 async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string): Promise<ContextCandidate[]> {
   const chaptersDir = path.join(workspaceDir, "chapters");
   const entries = await readdir(chaptersDir).catch(() => []);
@@ -325,7 +410,7 @@ async function loadPreviousChapterBodies(workspaceDir: string, chapterId: string
 
   return chapters
     .sort((left, right) => compareChapterIds(right.chapterId, left.chapterId))
-    .slice(0, 2)
+    .slice(0, 1)
     .map((chapter) => ({
       id: `previous-chapter-${chapter.chapterId}`,
       source: chapter.file,

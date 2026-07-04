@@ -1,0 +1,345 @@
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { ChapterPlanAuditSchema, ChaptersPlanDraftSchema } from "./bookPlan.js";
+import { loadLongguConfig, requireProviderBackedConfig } from "./config.js";
+import { buildChapterContext } from "./context.js";
+import { runRoutedTextGeneration } from "./modelExecution.js";
+import { estimateTokens } from "./modelRouting.js";
+import { renderChapterPrompt } from "./prompt.js";
+import { createRunRecord, finishRunRecord } from "./runs.js";
+export async function writeChapter(input) {
+    const draftInput = await prepareChapterDraftingInput(input.workspaceDir, input.chapterId, {
+        skipPlanAudit: input.skipPlanAudit
+    });
+    const config = requireProviderBackedConfig(draftInput.config);
+    const generated = await generateCompleteChapter({
+        workspaceDir: input.workspaceDir,
+        draftInput,
+        config,
+        important: input.important,
+        apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
+        generate: input.generate
+    });
+    const chapterPath = path.join(input.workspaceDir, "chapters", `${draftInput.chapterId}.md`);
+    await mkdir(path.dirname(chapterPath), { recursive: true });
+    await writeFile(chapterPath, generated.chapterText, "utf8");
+    return { chapterPath, runDir: generated.runDir };
+}
+export async function exportHostChapterPrompt(input) {
+    const draftInput = await prepareChapterDraftingInput(input.workspaceDir, input.chapterId, {
+        skipPlanAudit: input.skipPlanAudit
+    });
+    const outputDir = path.join(input.workspaceDir, "host-prompts");
+    await mkdir(outputDir, { recursive: true });
+    const promptPath = path.join(outputDir, `${draftInput.chapterId}.prompt.md`);
+    await writeFile(promptPath, draftInput.prompt, "utf8");
+    return {
+        promptPath,
+        contextJsonPath: draftInput.contextJsonPath,
+        contextMarkdownPath: draftInput.contextMarkdownPath
+    };
+}
+export async function importHostChapterDraft(input) {
+    const startedAt = input.now ?? new Date();
+    const draftInput = await prepareChapterDraftingInput(input.workspaceDir, input.chapterId, {
+        skipPlanAudit: input.skipPlanAudit
+    });
+    const sourcePath = resolveWorkspacePath(input.workspaceDir, input.inputPath);
+    const rawDraft = await readFile(sourcePath, "utf8");
+    const chapterText = normalizeGeneratedChapterHeading(rawDraft, draftInput.chapterId, draftInput.chapterTitle);
+    const chapterPath = path.join(input.workspaceDir, "chapters", `${draftInput.chapterId}.md`);
+    await mkdir(path.dirname(chapterPath), { recursive: true });
+    await writeFile(chapterPath, chapterText, "utf8");
+    const run = await createRunRecord({
+        workspaceDir: input.workspaceDir,
+        chapterId: draftInput.chapterId,
+        provider: "host-llm",
+        model: "host-llm",
+        startedAt,
+        prompt: draftInput.prompt,
+        context: draftInput.context
+    });
+    const finishedAt = new Date();
+    await finishRunRecord({
+        dir: run.dir,
+        output: chapterText,
+        metadata: {
+            id: run.id,
+            status: "success",
+            chapterId: draftInput.chapterId,
+            task: "drafting",
+            provider: "host-llm",
+            model: "host-llm",
+            modelProfile: "host",
+            startedAt: startedAt.toISOString(),
+            finishedAt: finishedAt.toISOString(),
+            durationMs: finishedAt.getTime() - startedAt.getTime(),
+            inputFiles: draftInput.context.map((item) => item.file),
+            promptFile: "prompt.md",
+            outputFile: "output.md",
+            fallbackAttempts: 0,
+            inputTokens: estimateTokens(draftInput.prompt),
+            outputTokens: estimateTokens(chapterText),
+            estimatedCost: 0,
+            attempts: [
+                {
+                    modelProfile: "host",
+                    provider: "host-llm",
+                    model: "host-llm",
+                    status: "success"
+                }
+            ]
+        }
+    });
+    return { chapterPath, runDir: run.dir, wordCount: createWordCountReport(chapterText, draftInput.targetWords) };
+}
+export async function exportHostBatchPrompt(input) {
+    const chapterIds = expandChapterIdRange(input.from, input.to);
+    const chapters = [];
+    const parts = [];
+    for (const chapterId of chapterIds) {
+        const result = await exportHostChapterPrompt({
+            workspaceDir: input.workspaceDir,
+            chapterId,
+            skipPlanAudit: input.skipPlanAudit
+        });
+        const resolvedId = path.basename(result.promptPath, ".prompt.md");
+        chapters.push({ chapterId: resolvedId, ...result });
+        parts.push(`## ${resolvedId}\n\n${await readFile(result.promptPath, "utf8")}`);
+    }
+    const outputDir = path.join(input.workspaceDir, "host-prompts");
+    await mkdir(outputDir, { recursive: true });
+    const promptPath = path.join(outputDir, `${input.from}-${input.to}.batch.prompt.md`);
+    await writeFile(promptPath, `${parts.join("\n\n---\n\n")}\n`, "utf8");
+    return { promptPath, chapters };
+}
+export async function importHostBatchDrafts(input) {
+    const inputDir = resolveWorkspacePath(input.workspaceDir, input.inputDir);
+    const results = [];
+    for (const chapterId of expandChapterIdRange(input.from, input.to)) {
+        const draftInput = await prepareChapterDraftingInput(input.workspaceDir, chapterId, {
+            skipPlanAudit: input.skipPlanAudit
+        });
+        const inputPath = await resolveBatchDraftPath(inputDir, chapterId, draftInput.chapterId);
+        const result = await importHostChapterDraft({
+            workspaceDir: input.workspaceDir,
+            chapterId,
+            inputPath,
+            skipPlanAudit: input.skipPlanAudit,
+            now: input.now
+        });
+        results.push({ chapterId: draftInput.chapterId, ...result });
+    }
+    return { results };
+}
+async function prepareChapterDraftingInput(workspaceDir, chapterId, options = {}) {
+    const config = await loadLongguConfig(workspaceDir);
+    const resolved = await resolveDraftingChapterId(workspaceDir, chapterId, options);
+    const contextResult = await buildChapterContext({ workspaceDir, chapterId: resolved.chapterId });
+    const context = contextPackToPromptContext(contextResult.pack);
+    const chapterCard = resolved.chapterCard;
+    if (chapterCard && !options.skipPlanAudit) {
+        await assertChapterPlanAuditPassed(workspaceDir, chapterCard);
+    }
+    const prompt = renderChapterPrompt({
+        config,
+        chapterId: resolved.chapterId,
+        targetWords: chapterCard?.chapter.targetWords,
+        context
+    });
+    return {
+        chapterId: resolved.chapterId,
+        config,
+        context,
+        prompt,
+        chapterTitle: chapterCard?.chapter.title,
+        targetWords: chapterCard?.chapter.targetWords ?? config.drafting?.targetWords,
+        contextJsonPath: contextResult.jsonPath,
+        contextMarkdownPath: contextResult.markdownPath
+    };
+}
+function contextPackToPromptContext(pack) {
+    return pack.sections
+        .filter((section) => section.included)
+        .map((section) => ({
+        file: section.source,
+        content: section.content
+    }));
+}
+async function resolveDraftingChapterId(workspaceDir, chapterId, options) {
+    const cards = await loadChapterCards(workspaceDir);
+    if (cards.length === 0) {
+        return { chapterId, chapterCard: null };
+    }
+    const exact = cards.find((card) => card.chapter.chapterId === chapterId);
+    if (exact) {
+        return { chapterId: exact.chapter.chapterId, chapterCard: exact };
+    }
+    const suffixMatches = cards.filter((card) => card.chapter.chapterId.endsWith(`-${chapterId}`));
+    if (suffixMatches.length === 1) {
+        const chapterCard = suffixMatches[0];
+        return { chapterId: chapterCard.chapter.chapterId, chapterCard };
+    }
+    if (suffixMatches.length > 1) {
+        throw new Error(`Ambiguous chapter id ${chapterId}; matching planned ids: ${suffixMatches
+            .map((card) => card.chapter.chapterId)
+            .join(", ")}. Use the full planned id.`);
+    }
+    if (options.skipPlanAudit) {
+        return { chapterId, chapterCard: null };
+    }
+    throw new Error(`No chapter plan card found for ${chapterId}. Use the full planned id, or pass --skip-plan-audit / --force to draft without a chapter card.`);
+}
+async function loadChapterCards(workspaceDir) {
+    const outlinesDir = path.join(workspaceDir, "outlines");
+    const entries = await readdir(outlinesDir).catch(() => []);
+    const cards = [];
+    for (const file of entries.filter((entry) => entry.startsWith("chapters-") && entry.endsWith(".draft.json")).sort()) {
+        const raw = await readFile(path.join(outlinesDir, file), "utf8");
+        const plan = ChaptersPlanDraftSchema.parse(JSON.parse(raw));
+        for (const chapter of plan.chapters) {
+            cards.push({ file: path.join("outlines", file), volumeId: plan.volumeId, chapter });
+        }
+    }
+    return cards;
+}
+async function assertChapterPlanAuditPassed(workspaceDir, chapterCard) {
+    const auditRelative = path.join("audits", `chapters-${chapterCard.volumeId}.plan-audit.json`);
+    const auditPath = path.join(workspaceDir, auditRelative);
+    if (!(await fileExists(auditPath))) {
+        throw new Error(`Chapter plan audit is required before drafting chapter ${chapterCard.chapter.chapterId}. Run longgu audit chapter-plan --volume ${chapterCard.volumeId}, or pass --skip-plan-audit / --force.`);
+    }
+    const audit = ChapterPlanAuditSchema.parse(JSON.parse(await readFile(auditPath, "utf8")));
+    if (audit.status !== "passed" || audit.blocked) {
+        const markdownPath = path.join("audits", `chapters-${chapterCard.volumeId}.plan-audit.md`);
+        throw new Error(`Chapter plan audit did not pass for ${chapterCard.file}: status=${audit.status}. Review ${markdownPath}, fix the chapter plan, rerun longgu audit chapter-plan --volume ${chapterCard.volumeId}, or pass --skip-plan-audit / --force.`);
+    }
+}
+async function fileExists(filePath) {
+    try {
+        await readFile(filePath, "utf8");
+        return true;
+    }
+    catch (error) {
+        if (error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}
+function normalizeGeneratedChapterHeading(text, chapterId, plannedTitle) {
+    if (!plannedTitle) {
+        return text;
+    }
+    const body = text.replace(/^\s*# .*(?:\r?\n|$)/, "").trimStart();
+    const normalized = `# 第${chapterId}章 ${plannedTitle}`;
+    return body ? `${normalized}\n\n${body}` : `${normalized}\n`;
+}
+async function generateCompleteChapter(input) {
+    let prompt = input.draftInput.prompt;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const routed = await runRoutedTextGeneration({
+            workspaceDir: input.workspaceDir,
+            task: "drafting",
+            subjectId: attempt === 0 ? input.draftInput.chapterId : `${input.draftInput.chapterId}-retry-complete`,
+            config: input.config,
+            prompt,
+            context: input.draftInput.context,
+            important: input.important,
+            apiKey: input.apiKey,
+            readApiKey: input.readApiKey,
+            generate: input.generate
+        });
+        const chapterText = normalizeGeneratedChapterHeading(routed.text, input.draftInput.chapterId, input.draftInput.chapterTitle);
+        if (!isLikelyTruncatedChapter(chapterText)) {
+            return { chapterText, runDir: routed.runDir };
+        }
+        prompt = renderTruncatedChapterRetryPrompt({
+            originalPrompt: input.draftInput.prompt,
+            previousOutput: chapterText,
+            chapterId: input.draftInput.chapterId
+        });
+    }
+    throw new Error(`Chapter generation appears truncated after retry for ${input.draftInput.chapterId}; no chapter file was written.`);
+}
+function isLikelyTruncatedChapter(text) {
+    const trimmed = text.trim();
+    if (trimmed.length < 120) {
+        return false;
+    }
+    if (/[。！？!?」”』）)\]】》…]$/u.test(trimmed)) {
+        return false;
+    }
+    return true;
+}
+function renderTruncatedChapterRetryPrompt(input) {
+    return `${input.originalPrompt}
+
+上一版第 ${input.chapterId} 章疑似在句中截断，不能保存。请重新输出完整章节：
+- 从章节开头重写，不要只续写残段
+- 保持原章节目标、上下文和目标字数
+- 结尾必须用完整句子收束，并保留章尾钩子
+
+疑似截断的上一版输出，仅用于避开同样的截断点：
+
+${input.previousOutput}`;
+}
+function resolveWorkspacePath(workspaceDir, inputPath) {
+    return path.isAbsolute(inputPath) ? inputPath : path.join(workspaceDir, inputPath);
+}
+function createWordCountReport(text, targetWords) {
+    const actualWords = countChineseStoryWords(text);
+    if (!targetWords) {
+        return {
+            actualWords,
+            status: "unknown-target",
+            message: `字数: ${actualWords} / 未设置目标`
+        };
+    }
+    const deviationRatio = (actualWords - targetWords) / targetWords;
+    const absolute = Math.abs(deviationRatio);
+    const status = absolute > 0.4 ? "error" : absolute > 0.2 ? "warning" : "ok";
+    const direction = deviationRatio >= 0 ? "高于目标" : "低于目标";
+    return {
+        actualWords,
+        targetWords,
+        deviationRatio,
+        status,
+        message: `字数: ${actualWords} / 目标 ${targetWords}（偏差 ${Math.round(absolute * 100)}%，${direction}）`
+    };
+}
+function countChineseStoryWords(text) {
+    const body = text.replace(/^#.*$/gm, "").trim();
+    const chineseChars = body.match(/[\u4e00-\u9fff]/gu)?.length ?? 0;
+    const latinWords = body.match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*/g)?.length ?? 0;
+    return chineseChars + latinWords;
+}
+function expandChapterIdRange(from, to) {
+    const fromMatch = from.match(/^(.*?)(\d+)$/);
+    const toMatch = to.match(/^(.*?)(\d+)$/);
+    if (!fromMatch || !toMatch || fromMatch[1] !== toMatch[1]) {
+        throw new Error("--from and --to must share the same non-numeric prefix.");
+    }
+    const start = Number.parseInt(fromMatch[2], 10);
+    const end = Number.parseInt(toMatch[2], 10);
+    if (end < start) {
+        throw new Error("--to must be greater than or equal to --from.");
+    }
+    const width = Math.max(fromMatch[2].length, toMatch[2].length);
+    return Array.from({ length: end - start + 1 }, (_, index) => `${fromMatch[1]}${String(start + index).padStart(width, "0")}`);
+}
+async function resolveBatchDraftPath(inputDir, requestedId, resolvedId) {
+    const candidates = [
+        path.join(inputDir, `${resolvedId}.md`),
+        path.join(inputDir, `${requestedId}.md`),
+        path.join(inputDir, `${resolvedId}.markdown`),
+        path.join(inputDir, `${requestedId}.markdown`)
+    ];
+    for (const candidate of candidates) {
+        if (await fileExists(candidate)) {
+            return candidate;
+        }
+    }
+    throw new Error(`No host draft found for ${resolvedId} in ${inputDir}. Expected ${resolvedId}.md.`);
+}

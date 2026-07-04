@@ -1,0 +1,76 @@
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { z } from "zod";
+export const ChapterFeedbackEntrySchema = z.object({
+    score: z.number().min(0).max(10),
+    comment: z.string().min(1),
+    createdAt: z.string().datetime()
+});
+export const ChapterFeedbackFileSchema = z.object({
+    schemaVersion: z.literal("longgu.chapter-feedback.v0.10"),
+    chapterId: z.string().min(1),
+    entries: z.array(ChapterFeedbackEntrySchema).min(1),
+    updatedAt: z.string().datetime()
+});
+export async function recordChapterFeedback(input) {
+    const outputDir = path.join(input.workspaceDir, "feedback");
+    const outputPath = path.join(outputDir, `${input.chapterId}.feedback.json`);
+    const now = (input.now ?? new Date()).toISOString();
+    const existing = await loadFeedbackFile(outputPath, input.chapterId);
+    const feedback = ChapterFeedbackFileSchema.parse({
+        schemaVersion: "longgu.chapter-feedback.v0.10",
+        chapterId: input.chapterId,
+        entries: [
+            ...existing,
+            {
+                score: input.score,
+                comment: input.comment,
+                createdAt: now
+            }
+        ],
+        updatedAt: now
+    });
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(feedback, null, 2)}\n`, "utf8");
+    return { feedback, outputPath };
+}
+export async function loadChapterFeedback(workspaceDir, chapterId) {
+    const feedbackDir = path.join(workspaceDir, "feedback");
+    const entries = await readdir(feedbackDir).catch(() => []);
+    const feedbackItems = [];
+    const selectedFiles = entries
+        .filter((entry) => entry.endsWith(".feedback.json"))
+        .map((file) => ({ file, chapterId: feedbackChapterIdFromFile(file) }))
+        .filter((entry) => entry.chapterId.localeCompare(chapterId) <= 0)
+        .sort((a, b) => a.chapterId.localeCompare(b.chapterId) || a.file.localeCompare(b.file))
+        .slice(-5);
+    for (const { file, chapterId: fileChapterId } of selectedFiles) {
+        const relative = path.join("feedback", file);
+        const raw = await readFile(path.join(workspaceDir, relative), "utf8");
+        const feedback = ChapterFeedbackFileSchema.parse(JSON.parse(raw));
+        if (feedback.chapterId !== fileChapterId) {
+            throw new Error(`Feedback chapterId mismatch: expected ${fileChapterId}, received ${feedback.chapterId}.`);
+        }
+        feedbackItems.push({ file: relative, feedback });
+    }
+    return feedbackItems;
+}
+function feedbackChapterIdFromFile(file) {
+    return file.slice(0, -".feedback.json".length);
+}
+async function loadFeedbackFile(filePath, chapterId) {
+    try {
+        const raw = await readFile(filePath, "utf8");
+        const feedback = ChapterFeedbackFileSchema.parse(JSON.parse(raw));
+        if (feedback.chapterId !== chapterId) {
+            throw new Error(`Feedback chapterId mismatch: expected ${chapterId}, received ${feedback.chapterId}.`);
+        }
+        return feedback.entries;
+    }
+    catch (error) {
+        if (error.code === "ENOENT") {
+            return [];
+        }
+        throw error;
+    }
+}

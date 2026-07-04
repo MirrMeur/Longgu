@@ -1,0 +1,415 @@
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { z } from "zod";
+import { ChapterAuditSchema } from "./audit.js";
+import { loadLongguConfig } from "./config.js";
+import { runRoutedTextGeneration } from "./modelExecution.js";
+import { analyzeChapterPacing, ChapterPacingSchema } from "./pacing.js";
+import { pathExists } from "./workspace.js";
+const experimentSchemaVersion = z.literal("longgu.experiment.v0.9");
+const variantSchemaVersion = z.literal("longgu.experiment-variant.v0.9");
+const scoreSchemaVersion = z.literal("longgu.experiment-score.v0.9");
+const compareSchemaVersion = z.literal("longgu.experiment-compare.v0.9");
+const diagnoseSchemaVersion = z.literal("longgu.experiment-diagnose.v0.9");
+export const ExperimentSortKeySchema = z.enum(["payoff", "hook", "ai-flavor", "setting-conflict", "contract", "cost"]);
+export const ExperimentManifestSchema = z.object({
+    schemaVersion: experimentSchemaVersion,
+    id: z.string().min(1),
+    goal: z.string().min(1),
+    createdAt: z.string().datetime(),
+    variants: z.array(z.string().min(1)).default([])
+});
+export const ExperimentVariantMetadataSchema = z.object({
+    schemaVersion: variantSchemaVersion,
+    experimentId: z.string().min(1),
+    variantId: z.string().min(1),
+    modelProfile: z.string().min(1).default("manual"),
+    sourceInput: z.string().min(1),
+    outputFile: z.literal("output.md"),
+    registeredAt: z.string().datetime(),
+    runId: z.string().min(1).optional(),
+    auditFile: z.string().min(1).optional(),
+    estimatedCost: z.number().min(0).optional()
+});
+export const ExperimentScoreSchema = z.object({
+    schemaVersion: scoreSchemaVersion,
+    payoff: z.number().min(0).max(10),
+    hook: z.number().min(0).max(10),
+    aiFlavor: z.number().min(0).max(10),
+    settingConflict: z.number().min(0).max(10).default(0),
+    note: z.string().default(""),
+    scoredAt: z.string().datetime()
+});
+export const ExperimentCompareItemSchema = z.object({
+    variantId: z.string().min(1),
+    modelProfile: z.string().min(1),
+    outputFile: z.string().min(1),
+    payoff: z.number().min(0).max(10).optional(),
+    hook: z.number().min(0).max(10).optional(),
+    aiFlavor: z.number().min(0).max(10).optional(),
+    settingConflict: z.number().min(0).max(10).optional(),
+    auditRetention: z.number().min(0).max(10).optional(),
+    auditAiFlavor: z.number().min(0).max(10).optional(),
+    auditContractStatus: z.enum(["complete", "incomplete"]).optional(),
+    auditContractMissingCount: z.number().int().nonnegative().optional(),
+    auditContractDiagnosis: z.string().optional(),
+    issueCount: z.number().int().nonnegative().optional(),
+    criticalCount: z.number().int().nonnegative().optional(),
+    estimatedCost: z.number().min(0).optional(),
+    note: z.string().optional()
+});
+export const ExperimentCompareSchema = z.object({
+    schemaVersion: compareSchemaVersion,
+    experimentId: z.string().min(1),
+    sort: ExperimentSortKeySchema,
+    generatedAt: z.string().datetime(),
+    variants: z.array(ExperimentCompareItemSchema)
+});
+export const ExperimentDiagnosticItemSchema = z.object({
+    variantId: z.string().min(1),
+    outputFile: z.string().min(1),
+    hookStrength: z.number().min(0).max(10),
+    dialogueDensity: z.number().min(0).max(1),
+    payoffCueCount: z.number().int().nonnegative(),
+    tailHookQuality: z.enum(["strong", "weak"]),
+    readability: z.object({
+        averageSentenceLength: z.number().nonnegative(),
+        shortSentenceRatio: z.number().min(0).max(1)
+    }),
+    emotionalIntensity: z.number().min(0).max(10),
+    pacing: ChapterPacingSchema
+});
+export const ExperimentDiagnosticSchema = z.object({
+    schemaVersion: diagnoseSchemaVersion,
+    experimentId: z.string().min(1),
+    generatedAt: z.string().datetime(),
+    variants: z.array(ExperimentDiagnosticItemSchema)
+});
+export async function createExperiment(input) {
+    const experimentId = normalizeExperimentId(input.id);
+    const manifestPath = path.join(input.workspaceDir, "experiments", experimentId, "manifest.json");
+    if (await pathExists(manifestPath)) {
+        throw new Error(`Experiment already exists: experiments/${experimentId}/manifest.json`);
+    }
+    const manifest = ExperimentManifestSchema.parse({
+        schemaVersion: "longgu.experiment.v0.9",
+        id: experimentId,
+        goal: input.goal,
+        createdAt: (input.now ?? new Date()).toISOString(),
+        variants: []
+    });
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeJson(manifestPath, manifest);
+    return { manifest, manifestPath };
+}
+export async function registerExperimentVariant(input) {
+    const experimentId = normalizeExperimentId(input.experimentId);
+    const variantId = normalizeExperimentId(input.variantId);
+    const manifest = await loadManifest(input.workspaceDir, experimentId);
+    const variantDir = path.join(input.workspaceDir, "experiments", experimentId, "variants", variantId);
+    const outputPath = path.join(variantDir, "output.md");
+    const metadataPath = path.join(variantDir, "metadata.json");
+    const sourcePath = path.isAbsolute(input.inputPath) ? input.inputPath : path.join(input.workspaceDir, input.inputPath);
+    if (!(await pathExists(sourcePath))) {
+        throw new Error(`Experiment variant input not found: ${input.inputPath}`);
+    }
+    await mkdir(variantDir, { recursive: true });
+    await copyFile(sourcePath, outputPath);
+    const metadata = ExperimentVariantMetadataSchema.parse({
+        schemaVersion: "longgu.experiment-variant.v0.9",
+        experimentId,
+        variantId,
+        modelProfile: input.modelProfile ?? "manual",
+        sourceInput: path.relative(input.workspaceDir, sourcePath),
+        outputFile: "output.md",
+        registeredAt: (input.now ?? new Date()).toISOString(),
+        runId: input.runId,
+        auditFile: input.auditFile,
+        estimatedCost: input.estimatedCost
+    });
+    await writeJson(metadataPath, metadata);
+    if (!manifest.variants.includes(variantId)) {
+        manifest.variants.push(variantId);
+        manifest.variants.sort();
+        await writeJson(path.join(input.workspaceDir, "experiments", experimentId, "manifest.json"), manifest);
+    }
+    return { metadata, variantDir, outputPath, metadataPath };
+}
+export async function generateExperimentVariant(input) {
+    const experimentId = normalizeExperimentId(input.experimentId);
+    const variantId = normalizeExperimentId(input.variantId);
+    const manifest = await loadManifest(input.workspaceDir, experimentId);
+    const promptPath = path.isAbsolute(input.promptPath) ? input.promptPath : path.join(input.workspaceDir, input.promptPath);
+    if (!(await pathExists(promptPath))) {
+        throw new Error(`Experiment prompt not found: ${input.promptPath}`);
+    }
+    const prompt = await readFile(promptPath, "utf8");
+    const config = input.config ?? (await loadLongguConfig(input.workspaceDir));
+    const run = await runRoutedTextGeneration({
+        workspaceDir: input.workspaceDir,
+        task: "experiment",
+        subjectId: `experiment-${experimentId}-${variantId}`,
+        config,
+        prompt,
+        context: [{ file: path.relative(input.workspaceDir, promptPath), content: prompt }],
+        apiKey: input.apiKey,
+        readApiKey: input.readApiKey,
+        generate: input.generate,
+        startedAt: input.now
+    });
+    const variantDir = path.join(input.workspaceDir, "experiments", experimentId, "variants", variantId);
+    const outputPath = path.join(variantDir, "output.md");
+    const metadataPath = path.join(variantDir, "metadata.json");
+    await mkdir(variantDir, { recursive: true });
+    await writeFile(outputPath, normalizeMarkdown(run.text), "utf8");
+    const metadata = ExperimentVariantMetadataSchema.parse({
+        schemaVersion: "longgu.experiment-variant.v0.9",
+        experimentId,
+        variantId,
+        modelProfile: run.modelProfile,
+        sourceInput: path.relative(input.workspaceDir, promptPath),
+        outputFile: "output.md",
+        registeredAt: (input.now ?? new Date()).toISOString(),
+        runId: run.runId,
+        estimatedCost: run.metadata.estimatedCost
+    });
+    await writeJson(metadataPath, metadata);
+    if (!manifest.variants.includes(variantId)) {
+        manifest.variants.push(variantId);
+        manifest.variants.sort();
+        await writeJson(path.join(input.workspaceDir, "experiments", experimentId, "manifest.json"), manifest);
+    }
+    return { metadata, variantDir, outputPath, metadataPath, runDir: run.runDir };
+}
+export async function scoreExperimentVariant(input) {
+    const experimentId = normalizeExperimentId(input.experimentId);
+    const variantId = normalizeExperimentId(input.variantId);
+    const variantDir = path.join(input.workspaceDir, "experiments", experimentId, "variants", variantId);
+    if (!(await pathExists(path.join(variantDir, "metadata.json")))) {
+        throw new Error(`Experiment variant metadata not found: experiments/${experimentId}/variants/${variantId}/metadata.json`);
+    }
+    const score = ExperimentScoreSchema.parse({
+        schemaVersion: "longgu.experiment-score.v0.9",
+        payoff: input.payoff,
+        hook: input.hook,
+        aiFlavor: input.aiFlavor,
+        settingConflict: input.settingConflict ?? 0,
+        note: input.note ?? "",
+        scoredAt: (input.now ?? new Date()).toISOString()
+    });
+    const scorePath = path.join(variantDir, "scores.json");
+    await writeJson(scorePath, score);
+    return { score, scorePath };
+}
+export async function compareExperiment(input) {
+    const experimentId = normalizeExperimentId(input.experimentId);
+    const manifest = await loadManifest(input.workspaceDir, experimentId);
+    const variants = await Promise.all(manifest.variants.map((variantId) => loadCompareItem(input.workspaceDir, experimentId, variantId)));
+    const sort = input.sort ?? "hook";
+    const compare = ExperimentCompareSchema.parse({
+        schemaVersion: "longgu.experiment-compare.v0.9",
+        experimentId,
+        sort,
+        generatedAt: (input.now ?? new Date()).toISOString(),
+        variants: variants.sort((left, right) => compareItems(left, right, sort))
+    });
+    const experimentDir = path.join(input.workspaceDir, "experiments", experimentId);
+    const jsonPath = path.join(experimentDir, "compare.json");
+    const markdownPath = path.join(experimentDir, "compare.md");
+    await writeJson(jsonPath, compare);
+    await writeFile(markdownPath, renderCompareMarkdown(compare), "utf8");
+    return { compare, jsonPath, markdownPath };
+}
+export async function diagnoseExperiment(input) {
+    const experimentId = normalizeExperimentId(input.experimentId);
+    const manifest = await loadManifest(input.workspaceDir, experimentId);
+    const variants = [];
+    for (const variantId of manifest.variants) {
+        const variantDir = path.join(input.workspaceDir, "experiments", experimentId, "variants", variantId);
+        const metadata = ExperimentVariantMetadataSchema.parse(JSON.parse(await readFile(path.join(variantDir, "metadata.json"), "utf8")));
+        const outputFile = path.join("experiments", experimentId, "variants", variantId, metadata.outputFile);
+        const text = await readFile(path.join(input.workspaceDir, outputFile), "utf8");
+        variants.push(diagnoseVariant(variantId, outputFile, text));
+    }
+    const diagnostic = ExperimentDiagnosticSchema.parse({
+        schemaVersion: "longgu.experiment-diagnose.v0.9",
+        experimentId,
+        generatedAt: (input.now ?? new Date()).toISOString(),
+        variants
+    });
+    const experimentDir = path.join(input.workspaceDir, "experiments", experimentId);
+    const jsonPath = path.join(experimentDir, "diagnose.json");
+    const markdownPath = path.join(experimentDir, "diagnose.md");
+    await writeJson(jsonPath, diagnostic);
+    await writeFile(markdownPath, renderDiagnosticMarkdown(diagnostic), "utf8");
+    return { diagnostic, jsonPath, markdownPath };
+}
+async function loadManifest(workspaceDir, experimentId) {
+    const manifestPath = path.join(workspaceDir, "experiments", experimentId, "manifest.json");
+    const raw = await readFile(manifestPath, "utf8");
+    return ExperimentManifestSchema.parse(JSON.parse(raw));
+}
+async function loadCompareItem(workspaceDir, experimentId, variantId) {
+    const variantDir = path.join(workspaceDir, "experiments", experimentId, "variants", variantId);
+    const metadata = ExperimentVariantMetadataSchema.parse(JSON.parse(await readFile(path.join(variantDir, "metadata.json"), "utf8")));
+    const score = await readOptionalJson(path.join(variantDir, "scores.json"), ExperimentScoreSchema);
+    const audit = metadata.auditFile
+        ? await readOptionalJson(path.join(workspaceDir, metadata.auditFile), ChapterAuditSchema)
+        : undefined;
+    const run = metadata.runId ? await readRunMetadata(workspaceDir, metadata.runId) : undefined;
+    return ExperimentCompareItemSchema.parse({
+        variantId,
+        modelProfile: metadata.modelProfile,
+        outputFile: path.join("experiments", experimentId, "variants", variantId, metadata.outputFile),
+        payoff: score?.payoff,
+        hook: score?.hook,
+        aiFlavor: score?.aiFlavor,
+        settingConflict: score?.settingConflict,
+        auditRetention: audit?.scores.retention,
+        auditAiFlavor: audit?.scores.aiFlavor,
+        auditContractStatus: audit?.contract.status,
+        auditContractMissingCount: audit?.contract.missing.length,
+        auditContractDiagnosis: audit?.contract.diagnosis,
+        issueCount: audit?.issues.length,
+        criticalCount: audit?.issues.filter((issue) => issue.severity === "critical").length,
+        estimatedCost: metadata.estimatedCost ?? run?.estimatedCost,
+        note: score?.note
+    });
+}
+async function readRunMetadata(workspaceDir, runId) {
+    return readOptionalJson(path.join(workspaceDir, "runs", runId, "metadata.json"), z.custom());
+}
+async function readOptionalJson(filePath, schema) {
+    if (!(await pathExists(filePath))) {
+        return undefined;
+    }
+    const raw = await readFile(filePath, "utf8");
+    return schema.parse(JSON.parse(raw));
+}
+async function writeJson(filePath, data) {
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+function compareItems(left, right, sort) {
+    const leftValue = sortValue(left, sort);
+    const rightValue = sortValue(right, sort);
+    if (leftValue !== rightValue) {
+        return sort === "ai-flavor" || sort === "setting-conflict" || sort === "contract" || sort === "cost"
+            ? leftValue - rightValue
+            : rightValue - leftValue;
+    }
+    if (sort === "contract") {
+        const retention = (right.auditRetention ?? -1) - (left.auditRetention ?? -1);
+        if (retention !== 0) {
+            return retention;
+        }
+        const hook = (right.hook ?? -1) - (left.hook ?? -1);
+        if (hook !== 0) {
+            return hook;
+        }
+        const payoff = (right.payoff ?? -1) - (left.payoff ?? -1);
+        if (payoff !== 0) {
+            return payoff;
+        }
+    }
+    return left.variantId.localeCompare(right.variantId);
+}
+function sortValue(item, sort) {
+    switch (sort) {
+        case "payoff":
+            return item.payoff ?? -1;
+        case "hook":
+            return item.hook ?? -1;
+        case "ai-flavor":
+            return item.aiFlavor ?? Number.POSITIVE_INFINITY;
+        case "setting-conflict":
+            return item.settingConflict ?? item.criticalCount ?? Number.POSITIVE_INFINITY;
+        case "contract":
+            return contractSortValue(item);
+        case "cost":
+            return item.estimatedCost ?? Number.POSITIVE_INFINITY;
+    }
+}
+function contractSortValue(item) {
+    if (item.auditContractStatus === "complete") {
+        return 0;
+    }
+    if (item.auditContractStatus === "incomplete") {
+        return 1 + (item.auditContractMissingCount ?? Number.MAX_SAFE_INTEGER);
+    }
+    return Number.POSITIVE_INFINITY;
+}
+function renderCompareMarkdown(compare) {
+    const rows = compare.variants
+        .map((item) => `| ${item.variantId} | ${item.modelProfile} | ${formatNumber(item.payoff)} | ${formatNumber(item.hook)} | ${formatNumber(item.aiFlavor)} | ${formatContractStatus(item.auditContractStatus)} | ${formatNumber(item.auditContractMissingCount)} | ${formatNumber(item.settingConflict)} | ${formatNumber(item.estimatedCost)} | ${item.note ?? ""} |`)
+        .join("\n");
+    return `# Experiment Compare ${compare.experimentId}
+
+- Sort: ${compare.sort}
+- Generated at: ${compare.generatedAt}
+
+| Variant | Model | Payoff | Hook | AI Flavor | Contract | Missing | Setting Conflict | Cost | Note |
+| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |
+${rows || "| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | |"}
+`;
+}
+function diagnoseVariant(variantId, outputFile, text) {
+    const pacing = analyzeChapterPacing(variantId, text);
+    const body = normalizeMarkdown(text);
+    const opening = body.slice(0, 300);
+    const sentences = body.split(/[。！？!?]/u).map((item) => item.trim()).filter(Boolean);
+    const sentenceLengths = sentences.map((sentence) => sentence.length);
+    const averageSentenceLength = sentenceLengths.length
+        ? sentenceLengths.reduce((sum, length) => sum + length, 0) / sentenceLengths.length
+        : 0;
+    const shortSentenceRatio = sentenceLengths.length
+        ? sentenceLengths.filter((length) => length <= 18).length / sentenceLengths.length
+        : 0;
+    const hookStrength = Math.min(10, (/(冲突|逼|杀|债|死|裂|黑|真相|秘密|跪|夺|逃|血|忽然|竟然)/u.test(opening) ? 5 : 0) +
+        Math.min(5, pacing.payoffCueCount + (pacing.hasCliffhanger ? 2 : 0)));
+    return ExperimentDiagnosticItemSchema.parse({
+        variantId,
+        outputFile,
+        hookStrength,
+        dialogueDensity: pacing.dialogueDensity,
+        payoffCueCount: pacing.payoffCueCount,
+        tailHookQuality: pacing.hasCliffhanger ? "strong" : "weak",
+        readability: {
+            averageSentenceLength: Math.round(averageSentenceLength * 10) / 10,
+            shortSentenceRatio: Math.round(shortSentenceRatio * 100) / 100
+        },
+        emotionalIntensity: pacing.emotionalIntensity,
+        pacing
+    });
+}
+function renderDiagnosticMarkdown(diagnostic) {
+    const rows = diagnostic.variants
+        .map((variant) => `| ${variant.variantId} | ${variant.hookStrength} | ${variant.dialogueDensity.toFixed(2)} | ${variant.payoffCueCount} | ${variant.tailHookQuality} | ${variant.readability.averageSentenceLength} | ${variant.emotionalIntensity} |`)
+        .join("\n");
+    return `# Experiment Diagnose ${diagnostic.experimentId}
+
+- Generated at: ${diagnostic.generatedAt}
+
+| Variant | Opening Hook | Dialogue Density | Payoff Cues | Tail Hook | Avg Sentence | Emotion |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+${rows || "| n/a | n/a | n/a | n/a | n/a | n/a | n/a |"}
+`;
+}
+function normalizeExperimentId(value) {
+    const id = value.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) {
+        throw new Error("Experiment id must contain only letters, numbers, underscores, or hyphens.");
+    }
+    return id;
+}
+function formatNumber(value) {
+    return value === undefined ? "n/a" : String(value);
+}
+function formatContractStatus(value) {
+    return value ?? "n/a";
+}
+function normalizeMarkdown(text) {
+    const trimmed = text.trim();
+    const fenced = trimmed.match(/^```(?:md|markdown)?\s*([\s\S]*?)\s*```$/i);
+    return `${(fenced?.[1] ?? trimmed).trim()}\n`;
+}

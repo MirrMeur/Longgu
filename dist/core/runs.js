@@ -1,0 +1,95 @@
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+export function createRunId(date = new Date()) {
+    return date.toISOString().replace(/[:.]/g, "-");
+}
+export async function createRunRecord(input) {
+    const id = createRunId(input.startedAt);
+    const dir = path.join(input.workspaceDir, "runs", id);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "prompt.md"), input.prompt, "utf8");
+    await writeFile(path.join(dir, "context.json"), JSON.stringify(input.context, null, 2), "utf8");
+    return { id, dir };
+}
+export async function finishRunRecord(input) {
+    if (input.output !== undefined) {
+        await writeFile(path.join(input.dir, "output.md"), input.output, "utf8");
+    }
+    if (input.error !== undefined) {
+        await writeFile(path.join(input.dir, "error.txt"), input.error, "utf8");
+    }
+    await writeFile(path.join(input.dir, "metadata.json"), JSON.stringify(input.metadata, null, 2), "utf8");
+}
+export async function latestRun(workspaceDir) {
+    const runsDir = path.join(workspaceDir, "runs");
+    const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+    const dirs = entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort()
+        .reverse();
+    for (const id of dirs) {
+        const dir = path.join(runsDir, id);
+        try {
+            const raw = await readFile(path.join(dir, "metadata.json"), "utf8");
+            return { id, dir, metadata: JSON.parse(raw) };
+        }
+        catch {
+            continue;
+        }
+    }
+    return null;
+}
+export async function buildCostReport(workspaceDir) {
+    const runs = await readAllRunMetadata(workspaceDir);
+    const report = {
+        totalRuns: runs.length,
+        inputTokens: sum(runs.map((run) => run.inputTokens ?? 0)),
+        outputTokens: sum(runs.map((run) => run.outputTokens ?? 0)),
+        estimatedCost: roundCost(sum(runs.map((run) => run.estimatedCost ?? 0))),
+        byTask: aggregateRuns(runs, (run) => run.task ?? "unknown"),
+        byModel: aggregateRuns(runs, (run) => run.modelProfile ?? run.model)
+    };
+    return report;
+}
+async function readAllRunMetadata(workspaceDir) {
+    const runsDir = path.join(workspaceDir, "runs");
+    const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+    const runs = [];
+    for (const entry of entries.filter((item) => item.isDirectory()).sort((left, right) => left.name.localeCompare(right.name))) {
+        try {
+            const raw = await readFile(path.join(runsDir, entry.name, "metadata.json"), "utf8");
+            runs.push(JSON.parse(raw));
+        }
+        catch {
+            continue;
+        }
+    }
+    return runs;
+}
+function aggregateRuns(runs, keyFn) {
+    const map = new Map();
+    for (const run of runs) {
+        const key = keyFn(run);
+        const existing = map.get(key) ??
+            {
+                id: key,
+                runs: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                estimatedCost: 0
+            };
+        existing.runs += 1;
+        existing.inputTokens += run.inputTokens ?? 0;
+        existing.outputTokens += run.outputTokens ?? 0;
+        existing.estimatedCost = roundCost(existing.estimatedCost + (run.estimatedCost ?? 0));
+        map.set(key, existing);
+    }
+    return [...map.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+function sum(values) {
+    return values.reduce((total, value) => total + value, 0);
+}
+function roundCost(value) {
+    return Number(value.toFixed(6));
+}

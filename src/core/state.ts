@@ -49,7 +49,8 @@ const HookSchema = z.object({
   text: z.string().min(1),
   status: z.enum(["opened", "mentioned", "delayed", "resolved"]),
   openedInChapterId: z.string().optional(),
-  resolvedInChapterId: z.string().optional()
+  resolvedInChapterId: z.string().optional(),
+  sourceAnchor: z.string().optional()
 });
 
 const ReaderPromiseSchema = z.object({
@@ -366,6 +367,7 @@ export async function settleChapterState(input: {
   };
 
   await writeAllStateLedgers(input.workspaceDir, after);
+  await writeGuidedStateFiles(input.workspaceDir, after, input.chapterId);
   await writeSettlementRecord({
     settlementDir,
     delta,
@@ -574,6 +576,7 @@ JSON 必须符合：
 - schemaVersion 固定为 "longgu.state-delta.v0.3"
 - chapterId 固定为 "${input.chapterId}"
 - 可包含 facts, characters, timelineEvents, hooks, readerPromises, resources 六个数组
+- hooks 表示伏笔；重要伏笔必须尽量填写 sourceAnchor，保存正文中的短原文锚点
 - 不确定的变化不要写入
 - 不要整份重写账本，只输出本章新增或变化的条目
 - 复用已有 id；新增条目使用稳定、可读的 id
@@ -647,6 +650,92 @@ async function writeAllStateLedgers(
   for (const file of stateLedgerFiles) {
     await writeFile(path.join(workspaceDir, "state", file), `${JSON.stringify(ledgers[file], null, 2)}\n`, "utf8");
   }
+}
+
+async function writeGuidedStateFiles(
+  workspaceDir: string,
+  ledgers: Record<(typeof stateLedgerFiles)[number], StateLedger>,
+  chapterId: string
+): Promise<void> {
+  const outputDir = path.join(workspaceDir, "05_前情与状态");
+  const foreshadowingDir = path.join(workspaceDir, "04_伏笔与期待");
+  if (!(await pathExists(outputDir))) {
+    return;
+  }
+  await mkdir(outputDir, { recursive: true });
+  await mkdir(foreshadowingDir, { recursive: true });
+
+  const characters = ledgers["characters.json"] as CharactersLedger;
+  const timeline = ledgers["timeline.json"] as TimelineLedger;
+  const hooks = ledgers["hooks.json"] as HooksLedger;
+  const promises = ledgers["reader-promises.json"] as ReaderPromisesLedger;
+  const resources = ledgers["resources.json"] as ResourcesLedger;
+  const facts = ledgers["truth.json"] as TruthLedger;
+
+  await writeFile(path.join(outputDir, "角色状态.md"), renderCharactersState(characters), "utf8");
+  await writeFile(path.join(outputDir, "世界状态.md"), renderWorldState(facts, resources), "utf8");
+  await writeFile(path.join(outputDir, "关系状态.md"), renderRelationshipsState(characters), "utf8");
+  await writeFile(path.join(outputDir, "未解决问题.md"), renderOpenQuestions(hooks, promises), "utf8");
+  await writeFile(path.join(outputDir, "连续性风险.md"), renderContinuityRisks(characters, hooks, promises), "utf8");
+  await writeFile(path.join(outputDir, "近期前情.md"), renderRecentTimeline(timeline, chapterId), "utf8");
+  await writeFile(path.join(foreshadowingDir, "伏笔账本.md"), renderForeshadowingLedger(hooks), "utf8");
+}
+
+function renderCharactersState(ledger: CharactersLedger): string {
+  const rows = ledger.characters.length
+    ? ledger.characters
+        .map(
+          (character) =>
+            `## ${character.name}\n\n当前位置：${character.location}\n状态：${character.status}\n目标：${character.goals.join("、") || "无"}\n关系数：${character.relationships.length}\n`
+        )
+        .join("\n")
+    : "暂无角色状态。\n";
+  return `# 角色状态\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n${rows}`;
+}
+
+function renderWorldState(facts: TruthLedger, resources: ResourcesLedger): string {
+  const factRows = facts.facts.map((fact) => `- ${fact.text}${fact.sourceChapterId ? `（${fact.sourceChapterId}）` : ""}`).join("\n") || "- 暂无事实。";
+  const resourceRows = resources.resources.map((resource) => `- ${resource.name}：${resource.quantity}，${resource.state}`).join("\n") || "- 暂无资源变化。";
+  return `# 世界状态\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n## 已确认事实\n\n${factRows}\n\n## 资源状态\n\n${resourceRows}\n`;
+}
+
+function renderRelationshipsState(ledger: CharactersLedger): string {
+  const rows = ledger.characters.flatMap((character) =>
+    character.relationships.map((relationship) => `| ${character.name} | ${relationship.targetId} | ${relationship.relation} |`)
+  );
+  return `# 关系状态\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n| 角色A | 角色B | 当前关系 |\n| --- | --- | --- |\n${rows.length ? rows.join("\n") : "|  |  |  |"}\n`;
+}
+
+function renderOpenQuestions(hooks: HooksLedger, promises: ReaderPromisesLedger): string {
+  const hookRows = hooks.hooks
+    .filter((hook) => hook.status !== "resolved")
+    .map((hook) => `| ${hook.id} | ${hook.text} | ${hook.openedInChapterId ?? ""} | ${hook.status} | |`);
+  const promiseRows = promises.promises
+    .filter((promise) => promise.status === "active")
+    .map((promise) => `| ${promise.id} | ${promise.text} | ${promise.sourceChapterId ?? ""} | ${promise.status} | |`);
+  return `# 未解决问题\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n| 编号 | 问题 | 首次出现 | 当前状态 | 计划处理 |\n| --- | --- | --- | --- | --- |\n${hookRows.concat(promiseRows).join("\n") || "|  |  |  |  |  |"}\n`;
+}
+
+function renderContinuityRisks(characters: CharactersLedger, hooks: HooksLedger, promises: ReaderPromisesLedger): string {
+  const activeHooks = hooks.hooks.filter((hook) => hook.status !== "resolved");
+  const activePromises = promises.promises.filter((promise) => promise.status === "active");
+  const unavailableCharacters = characters.characters.filter((character) => character.status && character.status !== "active");
+  return `# 连续性风险\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n## 高风险\n\n${activeHooks.map((hook) => `- 伏笔 ${hook.id}：${hook.text}（${hook.status}）`).join("\n") || "- 暂无活跃伏笔风险。"}\n\n## 读者承诺\n\n${activePromises.map((promise) => `- ${promise.id}：${promise.text}`).join("\n") || "- 暂无活跃读者承诺风险。"}\n\n## 角色状态\n\n${unavailableCharacters.map((character) => `- ${character.name} 当前状态：${character.status}`).join("\n") || "- 暂无特殊角色状态风险。"}\n`;
+}
+
+function renderRecentTimeline(timeline: TimelineLedger, chapterId: string): string {
+  const recent = [...timeline.events]
+    .sort((left, right) => right.order - left.order || compareChapterIds(right.chapterId, left.chapterId))
+    .slice(0, 5);
+  return `# 近期前情\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n更新时间：第${chapterId}章后\n\n## 最近发生\n\n${recent.map((event) => `- ${event.chapterId}：${event.summary}`).join("\n") || "- 暂无近期事件。"}\n\n## 下一章必须承接\n\n- 承接第${chapterId}章后的角色、世界和伏笔状态。\n\n## 不能重复\n\n- 不要把已记录事件当成新发现重复呈现。\n`;
+}
+
+function renderForeshadowingLedger(ledger: HooksLedger): string {
+  const rows = ledger.hooks.map(
+    (hook) =>
+      `| ${hook.id} | ${hook.text} | ${hook.openedInChapterId ?? ""} | ${hook.sourceAnchor ?? ""} | ${hook.status} | ${hook.resolvedInChapterId ?? ""} | |`
+  );
+  return `# 伏笔账本\n\n> 作者可直接修改。AI 后续必须以本文件为准。\n\n| 编号 | 伏笔 | 首次出现 | 原文锚点 | 当前状态 | 计划回收 | 作者备注 |\n| --- | --- | --- | --- | --- | --- | --- |\n${rows.join("\n") || "| F001 |  |  |  | 未埋 |  |  |"}\n`;
 }
 
 function detectStateConflicts(

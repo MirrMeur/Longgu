@@ -11,6 +11,8 @@ export type GenerateChapterSummaryFn = GenerateTextFn;
 export interface SummarizeChapterResult {
   summary: ChapterSummary;
   summaryPath: string;
+  guidedSummaryPath: string;
+  recentContextPath: string;
   runDir: string;
 }
 
@@ -56,7 +58,74 @@ export async function summarizeChapter(input: {
   await mkdir(outputDir, { recursive: true });
   const summaryPath = path.join(outputDir, `${input.chapterId}.summary.json`);
   await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
-  return { summary, summaryPath, runDir: result.runDir };
+
+  const guidedSummaryPath = await writeGuidedChapterSummary(input.workspaceDir, summary);
+  const recentContextPath = await updateRecentContext(input.workspaceDir, summary);
+  return { summary, summaryPath, guidedSummaryPath, recentContextPath, runDir: result.runDir };
+}
+
+async function writeGuidedChapterSummary(workspaceDir: string, summary: ChapterSummary): Promise<string> {
+  const outputDir = path.join(workspaceDir, "05_前情与状态", "章节摘要");
+  await mkdir(outputDir, { recursive: true });
+  const summaryPath = path.join(outputDir, `第${summary.chapterId}章_摘要.md`);
+  await writeFile(summaryPath, renderGuidedChapterSummary(summary), "utf8");
+  return summaryPath;
+}
+
+async function updateRecentContext(workspaceDir: string, summary: ChapterSummary): Promise<string> {
+  const outputDir = path.join(workspaceDir, "05_前情与状态");
+  await mkdir(outputDir, { recursive: true });
+  const recentContextPath = path.join(outputDir, "近期前情.md");
+  await writeFile(recentContextPath, renderRecentContext(summary), "utf8");
+  return recentContextPath;
+}
+
+function renderGuidedChapterSummary(summary: ChapterSummary): string {
+  return `# 第${summary.chapterId}章_摘要
+
+> 本文件由章节摘要生成。作者可直接修改，AI 后续必须以本文件为准。
+
+## 标题
+
+${summary.title ?? "未命名"}
+
+## 本章摘要
+
+${summary.summary ?? "待补充。"}
+
+## 状态变化
+
+- 请在 AI 审稿或状态更新后补充。
+
+## 新增/加深/回收伏笔
+
+- 请对照 \`04_伏笔与期待/伏笔账本.md\` 更新。
+
+## 影响下一章
+
+- 请对照 \`05_前情与状态/近期前情.md\` 更新。
+`;
+}
+
+function renderRecentContext(summary: ChapterSummary): string {
+  return `# 近期前情
+
+> 作者可直接修改。AI 后续必须以本文件为准。
+
+更新时间：第${summary.chapterId}章后
+
+## 最近发生
+
+- 第${summary.chapterId}章：${summary.summary ?? "待补充。"}
+
+## 下一章必须承接
+
+- 承接第${summary.chapterId}章结尾状态。
+
+## 不能重复
+
+- 不要把第${summary.chapterId}章已经完成的发现、解释或冲突当成新内容重复呈现。
+`;
 }
 
 function renderChapterSummaryPrompt(input: { chapterId: string; chapterText: string }): string {

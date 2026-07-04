@@ -135,6 +135,7 @@ export interface ChapterAuditResult {
   audit: ChapterAudit;
   jsonPath: string;
   markdownPath: string;
+  guidedMarkdownPath?: string;
   attemptsPath?: string;
 }
 
@@ -148,9 +149,9 @@ export async function auditChapter(input: {
   generate?: GenerateChapterAuditFn;
   now?: Date;
 }): Promise<ChapterAuditResult> {
-  const chapterPath = path.join(input.workspaceDir, "chapters", `${input.chapterId}.md`);
-  if (!(await pathExists(chapterPath))) {
-    throw new Error(`Chapter body is required before audit: chapters/${input.chapterId}.md`);
+  const chapter = await resolveChapterBody(input.workspaceDir, input.chapterId);
+  if (!chapter) {
+    throw new Error(`Chapter body is required before audit: chapters/${input.chapterId}.md or 07_正文/第${input.chapterId}章.md`);
   }
 
   const config = input.config ?? (await loadLongguConfig(input.workspaceDir));
@@ -158,7 +159,8 @@ export async function auditChapter(input: {
     workspaceDir: input.workspaceDir,
     chapterId: input.chapterId,
     config,
-    chapterPath
+    chapterPath: chapter.path,
+    chapterSource: chapter.source
   });
   const rawInput = input.inputPath
     ? await loadRawAudit(path.isAbsolute(input.inputPath) ? input.inputPath : path.join(input.workspaceDir, input.inputPath))
@@ -184,6 +186,7 @@ export async function auditChapter(input: {
   const markdownPath = path.join(outputDir, `${input.chapterId}.audit.md`);
   await writeFile(jsonPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
   await writeFile(markdownPath, renderAuditMarkdown(audit), "utf8");
+  const guidedMarkdownPath = await writeGuidedAuditMarkdown(input.workspaceDir, audit);
 
   let attemptsPath: string | undefined;
   if (rawInput.attempts) {
@@ -191,7 +194,7 @@ export async function auditChapter(input: {
     await writeFile(attemptsPath, `${JSON.stringify(rawInput.attempts, null, 2)}\n`, "utf8");
   }
 
-  return { audit, jsonPath, markdownPath, attemptsPath };
+  return { audit, jsonPath, markdownPath, guidedMarkdownPath, attemptsPath };
 }
 
 export function normalizeChapterAudit(input: {
@@ -350,6 +353,7 @@ interface AuditContext {
   config: LongguConfig;
   chapterText: string;
   chapterPlanText: string;
+  guidedText: string;
   stateText: string;
   genrePrompt: string;
   payoffRecipesText: string;
@@ -362,13 +366,16 @@ async function loadAuditContext(input: {
   chapterId: string;
   config: LongguConfig;
   chapterPath: string;
+  chapterSource: string;
 }): Promise<AuditContext> {
-  const sourceFiles = [`chapters/${input.chapterId}.md`, "longgu.yaml"];
+  const sourceFiles = [input.chapterSource, "longgu.yaml"];
   const chapterText = await readFile(input.chapterPath, "utf8");
   const chapterPlan = await findChapterPlan(input.workspaceDir, input.chapterId);
   if (chapterPlan) {
     sourceFiles.push(chapterPlan.file);
   }
+  const guidedSnapshot = await loadGuidedAuditSnapshot(input.workspaceDir, input.chapterId);
+  sourceFiles.push(...guidedSnapshot.files);
   const stateSnapshot = await loadStateSnapshot(input.workspaceDir);
   sourceFiles.push(...stateSnapshot.files);
   const payoffRecipes = await loadPayoffRecipes(input.workspaceDir);
@@ -379,12 +386,58 @@ async function loadAuditContext(input: {
     chapterId: input.chapterId,
     config: input.config,
     chapterText,
-    chapterPlanText: chapterPlan?.content ?? "",
+    chapterPlanText: [chapterPlan?.content, guidedSnapshot.content].filter(Boolean).join("\n\n"),
+    guidedText: guidedSnapshot.content,
     stateText: stateSnapshot.content,
     genrePrompt: renderGenrePromptHints(resolveGenreCard(input.config.genre)),
     payoffRecipesText: payoffRecipes?.content ?? "",
     marketText: renderAuditMarketText(input.config),
     sourceFiles
+  };
+}
+
+async function resolveChapterBody(workspaceDir: string, chapterId: string): Promise<{ path: string; source: string } | null> {
+  const candidates = [
+    { source: path.join("chapters", `${chapterId}.md`), path: path.join(workspaceDir, "chapters", `${chapterId}.md`) },
+    { source: path.join("07_正文", `第${chapterId}章.md`), path: path.join(workspaceDir, "07_正文", `第${chapterId}章.md`) }
+  ];
+  for (const candidate of candidates) {
+    if (await pathExists(candidate.path)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function loadGuidedAuditSnapshot(workspaceDir: string, chapterId: string): Promise<{ files: string[]; content: string }> {
+  const files = [
+    "已确认决定.md",
+    path.join("01_立项设定", "读者承诺.md"),
+    path.join("02_设定圣经", "故事核心.md"),
+    path.join("02_设定圣经", "世界设定.md"),
+    path.join("02_设定圣经", "角色设定", "主角.md"),
+    path.join("03_大纲", "全书大纲.md"),
+    path.join("03_大纲", "分卷大纲.md"),
+    path.join("04_伏笔与期待", "伏笔账本.md"),
+    path.join("04_伏笔与期待", "读者期待.md"),
+    path.join("05_前情与状态", "近期前情.md"),
+    path.join("05_前情与状态", "角色状态.md"),
+    path.join("05_前情与状态", "世界状态.md"),
+    path.join("05_前情与状态", "关系状态.md"),
+    path.join("05_前情与状态", "未解决问题.md"),
+    path.join("05_前情与状态", "连续性风险.md"),
+    path.join("06_章节规划", `第${chapterId}章_规划.md`)
+  ];
+  const existing: { file: string; content: string }[] = [];
+  for (const file of files) {
+    const filePath = path.join(workspaceDir, file);
+    if (await pathExists(filePath)) {
+      existing.push({ file, content: await readFile(filePath, "utf8") });
+    }
+  }
+  return {
+    files: existing.map((item) => item.file),
+    content: existing.map((item) => `## ${item.file}\n\n${item.content.trim()}`).join("\n\n")
   };
 }
 
@@ -493,6 +546,60 @@ function renderAuditMarketText(config: LongguConfig): string {
     `updateCadence=${config.market.updateCadence ?? "unspecified"}`,
     config.market.platform ? platformRules[config.market.platform] : "按通用中文男频商业网文审计。"
   ].join("\n");
+}
+
+async function writeGuidedAuditMarkdown(workspaceDir: string, audit: ChapterAudit): Promise<string | undefined> {
+  const outputDir = path.join(workspaceDir, "08_AI审稿");
+  if (!(await pathExists(outputDir))) {
+    return undefined;
+  }
+  await mkdir(outputDir, { recursive: true });
+  const markdownPath = path.join(outputDir, `第${audit.chapterId}章_审稿.md`);
+  await writeFile(markdownPath, renderGuidedAuditMarkdown(audit), "utf8");
+  return markdownPath;
+}
+
+function renderGuidedAuditMarkdown(audit: ChapterAudit): string {
+  const issueList = audit.issues.length
+    ? audit.issues.map((issue) => `- [${issue.severity}] ${issue.location}：${issue.reason}\n  - 建议：${issue.fix}`).join("\n")
+    : "- 暂无问题。";
+  return `# 第${audit.chapterId}章_审稿
+
+> AI 审稿只提供建议。作者可直接修改正文、设定或本审稿文件，最终决定以作者为准。
+
+## 总评
+
+${audit.summary}
+
+## 章节规划符合度
+
+- 状态：${audit.contract.status}
+- 诊断：${audit.contract.diagnosis}
+- 缺失：${audit.contract.missing.length ? audit.contract.missing.join("、") : "无"}
+
+## 读者期待
+
+- Retention: ${audit.scores.retention}/10
+- Scene Pressure: ${audit.scores.scenePressure}/10
+- 爽点/兑现：${audit.contract.payoff}
+- 章尾钩子：${audit.contract.tailHook}
+
+## 伏笔检查
+
+${audit.issues.filter((issue) => issue.dimension.includes("hook") || issue.source === "state").length ? audit.issues.filter((issue) => issue.dimension.includes("hook") || issue.source === "state").map((issue) => `- ${issue.reason}`).join("\n") : "- 未发现明显伏笔问题。"}
+
+## 连续性检查
+
+${audit.issues.filter((issue) => issue.dimension.includes("conflict") || issue.dimension === "information-overreach").length ? audit.issues.filter((issue) => issue.dimension.includes("conflict") || issue.dimension === "information-overreach").map((issue) => `- ${issue.reason}`).join("\n") : "- 未发现明显连续性问题。"}
+
+## 角色一致性
+
+${audit.issues.filter((issue) => issue.dimension === "role-ooc").length ? audit.issues.filter((issue) => issue.dimension === "role-ooc").map((issue) => `- ${issue.reason}`).join("\n") : "- 未发现明显角色一致性问题。"}
+
+## 建议修改
+
+${issueList}
+`;
 }
 
 function renderAuditMarkdown(audit: ChapterAudit): string {

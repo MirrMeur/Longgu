@@ -529,7 +529,61 @@ export async function createChaptersPlanDraft(input: {
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(draft, null, 2)}\n`, "utf8");
+  await writeGuidedChapterPlanFiles(input.workspaceDir, draft, Boolean(input.force));
   return { draft, outputPath, overwritten: exists, runDir: modelResult?.runDir };
+}
+
+async function writeGuidedChapterPlanFiles(workspaceDir: string, draft: ChaptersPlanDraft, overwrite: boolean): Promise<void> {
+  const outputDir = path.join(workspaceDir, "06_章节规划");
+  await mkdir(outputDir, { recursive: true });
+  for (const chapter of draft.chapters) {
+    const outputPath = path.join(outputDir, `第${chapter.chapterId}章_规划.md`);
+    if (!overwrite && (await pathExists(outputPath))) {
+      continue;
+    }
+    await writeFile(outputPath, renderGuidedChapterPlan(chapter), "utf8");
+  }
+}
+
+function renderGuidedChapterPlan(chapter: ChaptersPlanDraft["chapters"][number]): string {
+  return `# 第${chapter.chapterId}章_规划
+
+> 作者可直接修改。AI 写正文和审稿必须以本文件为准。
+
+## 本章作用
+
+${chapter.goal || "待补充。"}
+
+## 本章必须发生
+
+- ${chapter.goal || "推进本章目标。"}
+- ${chapter.conflict || "制造有效冲突。"}
+
+## 本章不能发生
+
+- 不能违背 \`02_设定圣经/\` 和 \`已确认决定.md\`。
+- 不能重复 \`05_前情与状态/近期前情.md\` 中列出的“不能重复”。
+
+## 读者看点
+
+- ${chapter.informationGain || "提供明确信息增量。"}
+
+## 爽点
+
+${chapter.payoff || "待补充。"}
+
+## 伏笔
+
+- 参考 \`04_伏笔与期待/伏笔账本.md\` 和 \`05_前情与状态/未解决问题.md\`。
+
+## 章尾钩子
+
+${chapter.endingHook || "待补充。"}
+
+## 连续性风险
+
+- 核对 \`05_前情与状态/角色状态.md\`、\`世界状态.md\`、\`关系状态.md\`、\`连续性风险.md\`。
+`;
 }
 
 async function assertVolumePlanAuditPassed(workspaceDir: string, volumeId: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { GUIDED_DIRECTORIES, GUIDED_ROOT_FILES } from "../core/workspace.js";
 
 export async function createFixtureWorkspace(root: string): Promise<void> {
   await mkdir(path.join(root, "bible"), { recursive: true });
@@ -7,6 +8,14 @@ export async function createFixtureWorkspace(root: string): Promise<void> {
   await mkdir(path.join(root, "state"), { recursive: true });
   await mkdir(path.join(root, "chapters"), { recursive: true });
   await mkdir(path.join(root, "runs"), { recursive: true });
+  for (const dir of GUIDED_DIRECTORIES) {
+    await mkdir(path.join(root, dir), { recursive: true });
+    await mkdir(path.join(root, dir, "角色设定"), { recursive: true });
+    await mkdir(path.join(root, dir, "章节摘要"), { recursive: true });
+  }
+  for (const file of GUIDED_ROOT_FILES) {
+    await writeFile(path.join(root, file), "", "utf8");
+  }
   await writeFile(
     path.join(root, "longgu.yaml"),
     `title: 测试小说
@@ -28,6 +37,47 @@ context:
   await writeFile(path.join(root, "bible", "characters.md"), "# Characters\n\n主角：陆沉。\n", "utf8");
   await writeFile(path.join(root, "bible", "world.md"), "# World\n\n灵石是硬通货。\n", "utf8");
   await writeFile(path.join(root, "bible", "style.md"), "# Style\n\n节奏快，少解释。\n", "utf8");
+  await writeFile(path.join(root, "当前步骤.md"), "# 当前步骤\n\n阶段：1. 立项设定\n", "utf8");
+  await writeFile(path.join(root, "创作流程.md"), "# 创作流程\n", "utf8");
+  await writeFile(path.join(root, "已确认决定.md"), "# 已确认决定\n", "utf8");
+  await writeFile(path.join(root, "项目说明.md"), "# 项目说明\n", "utf8");
+  await writeFile(path.join(root, "01_立项设定", "_说明.md"), "# 01_立项设定\n", "utf8");
+  await writeFile(path.join(root, "01_立项设定", "创作目标.md"), "# 创作目标\n", "utf8");
+  await writeFile(path.join(root, "01_立项设定", "故事卖点.md"), "# 故事卖点\n", "utf8");
+  await writeFile(path.join(root, "01_立项设定", "读者承诺.md"), "# 读者承诺\n", "utf8");
+  await writeFile(path.join(root, "01_立项设定", "不写什么.md"), "# 不写什么\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "_说明.md"), "# 02_设定圣经\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "故事核心.md"), "# 故事核心\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "世界设定.md"), "# 世界设定\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "风格要求.md"), "# 风格要求\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "势力设定.md"), "# 势力设定\n", "utf8");
+  await mkdir(path.join(root, "02_设定圣经", "角色设定"), { recursive: true });
+  await writeFile(path.join(root, "02_设定圣经", "角色设定", "主角.md"), "# 主角\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "角色设定", "重要配角.md"), "# 重要配角\n", "utf8");
+  await writeFile(path.join(root, "02_设定圣经", "角色设定", "反派.md"), "# 反派\n", "utf8");
+  await writeFile(path.join(root, "03_大纲", "_说明.md"), "# 03_大纲\n", "utf8");
+  await writeFile(path.join(root, "03_大纲", "全书大纲.md"), "# 全书大纲\n", "utf8");
+  await writeFile(path.join(root, "03_大纲", "分卷大纲.md"), "# 分卷大纲\n", "utf8");
+  await writeFile(path.join(root, "03_大纲", "章节列表.md"), "# 章节列表\n", "utf8");
+  await writeFile(path.join(root, "04_伏笔与期待", "_说明.md"), "# 04_伏笔与期待\n", "utf8");
+  await writeFile(path.join(root, "04_伏笔与期待", "伏笔账本.md"), "# 伏笔账本\n", "utf8");
+  await writeFile(path.join(root, "04_伏笔与期待", "章尾钩子.md"), "# 章尾钩子\n", "utf8");
+  await writeFile(path.join(root, "04_伏笔与期待", "读者期待.md"), "# 读者期待\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "_说明.md"), "# 05_前情与状态\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "总前情.md"), "# 总前情\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "当前卷前情.md"), "# 当前卷前情\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "近期前情.md"), "# 近期前情\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "角色状态.md"), "# 角色状态\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "世界状态.md"), "# 世界状态\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "关系状态.md"), "# 关系状态\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "未解决问题.md"), "# 未解决问题\n", "utf8");
+  await writeFile(path.join(root, "05_前情与状态", "连续性风险.md"), "# 连续性风险\n", "utf8");
+  await writeFile(path.join(root, "06_章节规划", "_说明.md"), "# 06_章节规划\n", "utf8");
+  await writeFile(path.join(root, "06_章节规划", "第001章_规划.md"), "# 第001章_规划\n", "utf8");
+  await writeFile(path.join(root, "07_正文", "_说明.md"), "# 07_正文\n", "utf8");
+  await writeFile(path.join(root, "07_正文", "第001章.md"), "# 第001章\n", "utf8");
+  await writeFile(path.join(root, "08_AI审稿", "_说明.md"), "# 08_AI审稿\n", "utf8");
+  await writeFile(path.join(root, "08_AI审稿", "第001章_审稿.md"), "# 第001章_审稿\n", "utf8");
 }
 
 export async function createHostOnlyFixtureWorkspace(root: string): Promise<void> {
