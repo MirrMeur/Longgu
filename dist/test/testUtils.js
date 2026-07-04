@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { GUIDED_DIRECTORIES, GUIDED_ROOT_FILES } from "../core/workspace.js";
+import { GUIDED_DIRECTORIES, GUIDED_ROOT_FILES, GUIDED_SKILLS } from "../core/workspace.js";
 export async function createFixtureWorkspace(root) {
     await mkdir(path.join(root, "bible"), { recursive: true });
     await mkdir(path.join(root, "outlines"), { recursive: true });
@@ -14,6 +14,11 @@ export async function createFixtureWorkspace(root) {
     }
     for (const file of GUIDED_ROOT_FILES) {
         await writeFile(path.join(root, file), "", "utf8");
+    }
+    for (const skill of GUIDED_SKILLS) {
+        const skillDir = path.join(root, ".claude", "skills", skill);
+        await mkdir(skillDir, { recursive: true });
+        await writeFile(path.join(skillDir, "SKILL.md"), `# ${skill}\n`, "utf8");
     }
     await writeFile(path.join(root, "longgu.yaml"), `title: 测试小说
 genre: 玄幻

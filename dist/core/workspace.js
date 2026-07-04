@@ -17,6 +17,8 @@ export const GUIDED_DIRECTORIES = [
     "07_正文",
     "08_AI审稿"
 ];
+export const GUIDED_SKILLS = ["longgu-start", "longgu-plan", "longgu-write", "longgu-review", "longgu-state", "longgu-help"];
+const guidedSkillFiles = Object.fromEntries(GUIDED_SKILLS.map((skill) => [`.claude/skills/${skill}/SKILL.md`, renderLongguSkill(skill)]));
 const starterFiles = {
     "longgu.yaml": `title: 未命名小说
 genre: 玄幻
@@ -600,7 +602,7 @@ export async function initWorkspace(workspaceDir) {
             created.push(dir);
         }
     }
-    for (const [relativePath, content] of Object.entries({ ...starterFiles, ...guidedStarterFiles })) {
+    for (const [relativePath, content] of Object.entries({ ...starterFiles, ...guidedStarterFiles, ...guidedSkillFiles })) {
         const filePath = path.join(workspaceDir, relativePath);
         if (await pathExists(filePath)) {
             existing.push(relativePath);
@@ -622,7 +624,8 @@ export async function assertWorkspaceShape(workspaceDir) {
         "chapters",
         "runs",
         ...GUIDED_ROOT_FILES,
-        ...GUIDED_DIRECTORIES
+        ...GUIDED_DIRECTORIES,
+        ...GUIDED_SKILLS.map((skill) => path.join(".claude", "skills", skill, "SKILL.md"))
     ]) {
         if (!(await pathExists(path.join(workspaceDir, relativePath)))) {
             missing.push(relativePath);
@@ -644,7 +647,11 @@ export async function assertWorkspaceShape(workspaceDir) {
 }
 export async function assertGuidedWorkspaceShape(workspaceDir) {
     const missing = [];
-    for (const relativePath of [...GUIDED_ROOT_FILES, ...GUIDED_DIRECTORIES]) {
+    for (const relativePath of [
+        ...GUIDED_ROOT_FILES,
+        ...GUIDED_DIRECTORIES,
+        ...GUIDED_SKILLS.map((skill) => path.join(".claude", "skills", skill, "SKILL.md"))
+    ]) {
         if (!(await pathExists(path.join(workspaceDir, relativePath)))) {
             missing.push(relativePath);
         }
@@ -730,6 +737,69 @@ export function renderAiReviewTemplate(chapterId) {
 ## 建议修改
 
 -
+`;
+}
+function renderLongguSkill(skill) {
+    const descriptions = {
+        "longgu-start": {
+            title: "Longgu Start",
+            purpose: "立项/开书：确定题材、目标读者、故事卖点、读者承诺和不写什么。",
+            workflow: "先读取 `当前步骤.md`、`创作流程.md`、`01_立项设定/`，再帮作者补齐或整理立项文件。作者确认前不要进入设定圣经。",
+            example: "使用 longgu-start 开始立项。"
+        },
+        "longgu-plan": {
+            title: "Longgu Plan",
+            purpose: "设定 / 大纲 / 分卷 / 章节规划：把已确认立项推进成设定圣经、全书大纲、分卷大纲和单章规划。",
+            workflow: "先读取 `当前步骤.md`、`创作流程.md`、`已确认决定.md`、`01_立项设定/`、`02_设定圣经/`、`03_大纲/`、`04_伏笔与期待/`，再生成或更新规划文件。",
+            example: "使用 longgu-plan 继续规划下一章。"
+        },
+        "longgu-write": {
+            title: "Longgu Write",
+            purpose: "写正文：根据当前章规划、前情、状态、伏笔和上一章正文生成或修改正文。",
+            workflow: "先读取当前步骤、创作流程、设定圣经、大纲、伏笔与期待、近期前情、角色状态、未解决问题、当前章规划和上一章正文。默认不读取全历史正文。",
+            example: "使用 longgu-write 写第001章。"
+        },
+        "longgu-review": {
+            title: "Longgu Review",
+            purpose: "AI 审稿：检查正文是否符合章节规划、设定圣经、读者承诺、伏笔和连续性要求。",
+            workflow: "输出 `08_AI审稿/第NNN章_审稿.md`。只给建议，不自动覆盖作者决定。最终由作者拍板。",
+            example: "使用 longgu-review 审第001章。"
+        },
+        "longgu-state": {
+            title: "Longgu State",
+            purpose: "前情压缩 / 状态更新：生成章节摘要，更新近期前情、角色状态、世界状态、关系状态、未解决问题和伏笔账本。",
+            workflow: "正文和审稿完成后，读取本章正文、审稿建议、当前状态文件，再写回 `05_前情与状态/` 和 `04_伏笔与期待/`。",
+            example: "使用 longgu-state 更新第001章后的状态。"
+        },
+        "longgu-help": {
+            title: "Longgu Help",
+            purpose: "看当前步骤 / 解释目录 / 导航：解释当前项目结构、当前步骤、下一步建议和文件影响范围。",
+            workflow: "优先读取 `当前步骤.md`、`创作流程.md`、`项目说明.md`。回答要短，告诉作者现在看什么、改什么、下一步怎么说。",
+            example: "使用 longgu-help 解释当前步骤。"
+        }
+    };
+    const description = descriptions[skill];
+    return `# ${description.title}
+
+## 用途
+
+${description.purpose}
+
+## 工作方式
+
+${description.workflow}
+
+## 调用示例
+
+${description.example}
+
+## 通用规则
+
+- 作者手改文件优先级最高。
+- 每次行动前先读取 \`当前步骤.md\` 和 \`创作流程.md\`。
+- 只修改本 skill 负责的 workflow 段落。
+- 没有作者确认，不自动跨越大阶段。
+- 输出需说明读取了什么、写入了什么、下一步是什么。
 `;
 }
 function renderDirectoryGuide(input) {

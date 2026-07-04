@@ -13,6 +13,8 @@ describe("workspace", () => {
         expect(result.created).toContain("当前步骤.md");
         expect(result.created).toContain("01_立项设定");
         expect(result.created).toContain("08_AI审稿");
+        expect(result.created).toContain(path.join(".claude", "skills", "longgu-start", "SKILL.md"));
+        expect(result.created).toContain(path.join(".claude", "skills", "longgu-help", "SKILL.md"));
         expect(await assertWorkspaceShape(dir)).toEqual([]);
         expect(await assertGuidedWorkspaceShape(dir)).toEqual([]);
         await expect(readFile(path.join(dir, "longgu.yaml"), "utf8")).resolves.toContain("targetWords: 2500");
@@ -20,6 +22,8 @@ describe("workspace", () => {
         await expect(readFile(path.join(dir, "当前步骤.md"), "utf8")).resolves.toContain("你现在需要看");
         await expect(readFile(path.join(dir, "创作流程.md"), "utf8")).resolves.toContain("作者手改文件优先级最高");
         await expect(readFile(path.join(dir, "06_章节规划", "第001章_规划.md"), "utf8")).resolves.toContain("本章必须发生");
+        await expect(readFile(path.join(dir, ".claude", "skills", "longgu-start", "SKILL.md"), "utf8")).resolves.toContain("立项/开书");
+        await expect(readFile(path.join(dir, ".claude", "skills", "longgu-help", "SKILL.md"), "utf8")).resolves.toContain("解释当前项目结构");
     });
     it("keeps existing starter files", async () => {
         const dir = await mkdtemp(path.join(os.tmpdir(), "longgu-init-"));
@@ -28,5 +32,6 @@ describe("workspace", () => {
         expect(result.existing).toContain("longgu.yaml");
         expect(result.existing).toContain("state");
         expect(result.existing).toContain("bible/premise.md");
+        expect(result.existing).toContain(path.join(".claude", "skills", "longgu-start", "SKILL.md"));
     });
 });

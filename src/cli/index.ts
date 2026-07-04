@@ -48,20 +48,22 @@ program
 
 program
   .command("init")
-  .description("Initialize a V0.1 Longgu workspace")
+  .description("初始化 Claude Code-first 的中文小说工作区")
   .argument("[dir]", "target directory", ".")
   .action(async (dir: string) => {
     await runCli(async () => {
       const workspaceDir = path.resolve(dir);
       const result = await initWorkspace(workspaceDir);
-      console.log(`Initialized workspace: ${workspaceDir}`);
+      console.log(`已初始化工作区：${workspaceDir}`);
       if (result.created.length > 0) {
-        console.log(`Created: ${result.created.join(", ")}`);
+        console.log(`已创建：${result.created.join(", ")}`);
       }
       if (result.existing.length > 0) {
-        console.log(`Existing files kept: ${result.existing.join(", ")}`);
+        console.log(`已存在，保留不覆盖：${result.existing.join(", ")}`);
       }
-      console.log("Next: edit longgu.yaml and bible/*.md, then run longgu doctor.");
+      console.log("下一步：用 Claude Code 打开项目，先看 当前步骤.md。");
+      console.log("输入：使用 longgu-start");
+      console.log("按 当前步骤.md 填写立项设定，填好后说：继续推进当前步骤");
     });
   });
 
