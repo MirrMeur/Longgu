@@ -144,7 +144,6 @@ Longgu 不再把所有规则塞进一个 `longgu` skill，而是拆成一组 wor
 ├── 创作流程.md                    # 作者可读；workflow 规则
 ├── 已确认决定.md                  # 作者可改；关键决定记录
 ├── 项目说明.md                    # 作者可读；项目说明
-├── longgu.yaml                    # 进阶/旧 CLI 路径可能使用
 ├── .claude/
 │   └── skills/                    # Claude Code skill 文件，不是小说正文资产
 │       ├── longgu-start/
